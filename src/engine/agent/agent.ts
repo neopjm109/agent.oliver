@@ -1,6 +1,7 @@
-import OpenAI from "openai";
+class Agent {
+  constructor() {}
 
-const openai = new OpenAI({
-  baseURL: process.env.AGENT_HOST,
-  apiKey: "lm-studio",
-});
+  run() {}
+}
+
+export default Agent;
