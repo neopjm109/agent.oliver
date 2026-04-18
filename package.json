@@ -14,5 +14,10 @@
     "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "openai": "^6.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsc": "^2.0.4",
+    "typescript": "^6.0.3"
   }
 }
