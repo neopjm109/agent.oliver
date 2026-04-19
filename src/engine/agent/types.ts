@@ -27,6 +27,7 @@ export interface Planner {
 export interface ToolSelector {
   taskId: string;
   thought: string;
+  toolName: string;
   tokenUsage: TokenUsage;
   duration: number;
   completedAt: Date;
@@ -35,6 +36,7 @@ export interface ToolSelector {
 export interface ArgsGenerator {
   taskId: string;
   thought: string;
+  args: any;
   tokenUsage: TokenUsage;
   duration: number;
   completedAt: Date;
@@ -55,6 +57,7 @@ export interface Observation {
   tokenUsage: TokenUsage;
   duration: number;
   completedAt: Date;
+  tasks?: Task[];
 }
 
 export interface Summarizer {
@@ -79,7 +82,7 @@ export interface AgentState {
     | "summarizing"
     | "completed"
     | "error"; // 에이전트의 현재 진행 상태
-  plan: Task[]; // Plan Node가 생성한 할 일 목록
+  tasks: Task[]; // Plan Node가 생성한 할 일 목록
   results: NodeResult[]; // Node들의 실행 결과 저장소
   currentStep: number; // 현재 진행 중인 태스크 인덱스
   messages: Message[]; // LLM과의 전체 대화 이력
