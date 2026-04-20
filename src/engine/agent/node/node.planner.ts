@@ -8,6 +8,7 @@ import { Planner } from "../types";
  * @description 요구사항을 보고 Task 계획을 세운다
  */
 const plannerNode = async (client: Client, input: string): Promise<Planner> => {
+  const now = new Date();
   const response = await client.chat({
     messages: [
       { role: 'system', content: getPlanSystemPrompt("")},
@@ -19,6 +20,7 @@ const plannerNode = async (client: Client, input: string): Promise<Planner> => {
   console.log("----------");
   console.log(response.choices[0].message?.content);
   console.log("----------");
+
   const planner: any = JSON.parse(response.choices[0].message?.content!!);
   const usage = response.usage;
 
@@ -31,7 +33,7 @@ const plannerNode = async (client: Client, input: string): Promise<Planner> => {
       totalTokens: usage?.total_tokens || 0,
       estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
-    duration: 0,
+    duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),
   };
 };
