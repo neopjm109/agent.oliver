@@ -11,8 +11,6 @@ export interface TokenUsage {
 export interface Task {
   taskId: string; // UUID 혹은 정적 ID
   goal: string; // LLM이 이해하기 위한 작업의 목적
-  toolName: string; // 실행할 도구의 식별자
-  args: Record<string, any>; // (Optional) Plan 단계에서 미리 정의된 인자
   status: "pending" | "running" | "success" | "failed";
   dependsOn: string[]; // 선행 태스크 ID (병렬 처리 설계 시 활용)
 }
