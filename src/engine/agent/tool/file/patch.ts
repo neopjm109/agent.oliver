@@ -1,6 +1,13 @@
 import * as z from "zod";
 import { Tool } from "../types";
 
+export const PatchFilesSchema = z.object({
+  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
+  search: z.string().describe("The exact string/code block to find in the file"),
+  replace: z.string().describe("The new string/code block to replace it with"),
+});
+
+type PatchFileType = z.infer<typeof PatchFilesSchema>;
 export const patchFileName = "patch_file";
 
 export const patchFileTool = (): Tool => {
@@ -29,12 +36,6 @@ export const patchFileTool = (): Tool => {
         required: ["path", "search", "replace"],
       },
     },
-    execute: async () => {},
+    execute: async (args: PatchFileType) => {},
   };
 };
-
-export const patchFilesSchema = z.object({
-  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
-  search: z.string().describe("The exact string/code block to find in the file"),
-  replace: z.string().describe("The new string/code block to replace it with"),
-});
