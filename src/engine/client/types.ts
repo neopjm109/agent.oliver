@@ -14,7 +14,7 @@ export interface ChatParam {
   model?: string;
   messages: Message[];
   temperature?: number;
-  effort: ReasoningEffort;
+  effort?: ReasoningEffort;
   format:
     | ResponseFormatText
     | ResponseFormatJSONSchema
