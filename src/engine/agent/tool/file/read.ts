@@ -1,6 +1,9 @@
+import * as z from "zod";
 import { Tool } from "../types";
 
-const readFileTool = (): Tool => {
+export const readFileName = "read_file";
+
+export const readFileTool = (): Tool => {
   return {
     definition: {
       name: "read_file",
@@ -22,4 +25,6 @@ const readFileTool = (): Tool => {
   };
 };
 
-export default readFileTool;
+export const readFilesSchema = z.object({
+  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
+});
