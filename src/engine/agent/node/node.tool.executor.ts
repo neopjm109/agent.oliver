@@ -1,11 +1,19 @@
-import { ToolExecutor } from "../types";
+import Client from "../../client/client";
+import { Tool } from "../tool/types";
+import { TokenUsage, ToolExecutor } from "../types";
 
 const toolExecutorNode = async (
+  client: Client,
+  taskId: string,
+  tools: Tool[],
   toolName: string,
   args: any,
 ): Promise<ToolExecutor> => {
+  const now = new Date();
+  const usage: any = null;
+
   return {
-    taskId: "",
+    taskId: taskId,
     result: {
       taskId: "",
       toolName: "",
@@ -16,12 +24,12 @@ const toolExecutorNode = async (
       completedAt: new Date(),
     },
     tokenUsage: {
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      estimatedCost: 0,
+      promptTokens: usage?.prompt_tokens || 0,
+      completionTokens: usage?.completion_tokens || 0,
+      totalTokens: usage?.total_tokens || 0,
+      estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
-    duration: 0,
+    duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),
   };
 };
