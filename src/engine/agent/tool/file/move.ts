@@ -3,7 +3,9 @@ import { Tool } from "../types";
 
 export const MoveFilesSchema = z.object({
   source: z.string().describe("Original path of the file/directory"),
-  destination: z.string().describe("New path (target path) for the file/directory"),
+  destination: z
+    .string()
+    .describe("New path (target path) for the file/directory"),
 });
 
 type MoveFileType = z.infer<typeof MoveFilesSchema>;

@@ -2,8 +2,12 @@ import * as z from "zod";
 import { Tool } from "../types";
 
 export const PatchFilesSchema = z.object({
-  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
-  search: z.string().describe("The exact string/code block to find in the file"),
+  pathname: z
+    .string()
+    .describe("Path to the file (relative to root, or absolute within root)"),
+  search: z
+    .string()
+    .describe("The exact string/code block to find in the file"),
   replace: z.string().describe("The new string/code block to replace it with"),
 });
 

@@ -2,7 +2,9 @@ import * as z from "zod";
 import { Tool } from "../types";
 
 export const ReadFilesSchema = z.object({
-  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
+  pathname: z
+    .string()
+    .describe("Path to the file (relative to root, or absolute within root)"),
 });
 
 type ReadFileType = z.infer<typeof ReadFilesSchema>;

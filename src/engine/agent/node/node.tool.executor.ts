@@ -7,7 +7,7 @@ const toolExecutorNode = async (
   args: any,
 ): Promise<ToolExecutor> => {
   const now = new Date();
-  
+
   const result = await tool.execute(args);
   const usage: any = result?.usage;
 
@@ -26,7 +26,6 @@ const toolExecutorNode = async (
       promptTokens: usage?.prompt_tokens || 0,
       completionTokens: usage?.completion_tokens || 0,
       totalTokens: usage?.total_tokens || 0,
-      estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
     duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),

@@ -11,10 +11,10 @@ const plannerNode = async (client: Client, input: string): Promise<Planner> => {
   const now = new Date();
   const response = await client.chat({
     messages: [
-      { role: 'system', content: getPlanSystemPrompt("")},
-      { role: 'user', content: input }
+      { role: "system", content: getPlanSystemPrompt("") },
+      { role: "user", content: input },
     ],
-    format: zodResponseFormat(PlannerSchema, "planner_schema")
+    format: zodResponseFormat(PlannerSchema, "planner_schema"),
   });
 
   console.log("----------");
@@ -31,7 +31,6 @@ const plannerNode = async (client: Client, input: string): Promise<Planner> => {
       promptTokens: usage?.prompt_tokens || 0,
       completionTokens: usage?.completion_tokens || 0,
       totalTokens: usage?.total_tokens || 0,
-      estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
     duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),
@@ -53,7 +52,6 @@ ${toolsDescription}
 4. Task 객체 구조:
    - taskId: "task-1", "task-2" 순의 고유 식별자
    - goal: 해당 단계에서 달성해야 할 구체적인 목표 (자연어)
-   - toolName: 도구 목록에 정의된 정확한 이름 (대소문자 일치 필수)
    - dependsOn: 해당 작업을 시작하기 위해 먼저 완료되어야 하는 taskId 리스트 (없으면 [])
 
 [실행 계획 예시]
@@ -62,13 +60,13 @@ ${toolsDescription}
     {
       "taskId": "task-1",
       "goal": "프로젝트 루트의 package.json 파일을 읽어 의존성 파악",
-      "toolName": "read_file",
+      "status": "pending",
       "dependsOn": []
     },
     {
       "taskId": "task-2",
       "goal": "읽어온 package.json의 라이브러리 보안 취약점 분석",
-      "toolName": "understand_code",
+      "status": "pending",
       "dependsOn": ["task-1"]
     }
   ]

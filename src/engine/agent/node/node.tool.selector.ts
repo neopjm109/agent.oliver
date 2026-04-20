@@ -7,15 +7,15 @@ import { ToolSelectorSchema } from "../schemas";
 const toolSelectorNode = async (
   client: Client,
   task: Task,
-  tools: Tool[],
+  tools: Map<string, Tool>,
 ): Promise<ToolSelector> => {
   const now = new Date();
   const response = await client.chat({
     messages: [
-      { role: 'system', content: ""},
-      { role: 'user', content: "" }
+      { role: "system", content: "" },
+      { role: "user", content: "" },
     ],
-    format: zodResponseFormat(ToolSelectorSchema, "planner_schema")
+    format: zodResponseFormat(ToolSelectorSchema, "selector_schema"),
   });
 
   console.log("----------");
@@ -33,7 +33,6 @@ const toolSelectorNode = async (
       promptTokens: usage?.prompt_tokens || 0,
       completionTokens: usage?.completion_tokens || 0,
       totalTokens: usage?.total_tokens || 0,
-      estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
     duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),

@@ -5,7 +5,7 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
-  estimatedCost: number;
+  estimatedCost?: number;
 }
 
 export interface Task {

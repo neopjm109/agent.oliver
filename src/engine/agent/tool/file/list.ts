@@ -3,7 +3,10 @@ import { Tool } from "../types";
 
 export const ListFilesSchema = z.object({
   pathname: z.string().describe("보여줄 파일리스트 경로"),
-  recursive: z.boolean().default(true).describe("true일 경우, 하위 디렉토리까지 전체 검색")
+  recursive: z
+    .boolean()
+    .default(true)
+    .describe("true일 경우, 하위 디렉토리까지 전체 검색"),
 });
 
 type ListFilesType = z.infer<typeof ListFilesSchema>;

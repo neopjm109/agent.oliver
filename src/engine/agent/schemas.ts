@@ -7,7 +7,7 @@ export const ToolResult = z.object({
   output: z.any(),
   isError: z.boolean(),
   errorMessage: z.string().optional().nullable(),
-})
+});
 
 export const TaskSchema = z.object({
   taskId: z.string(),

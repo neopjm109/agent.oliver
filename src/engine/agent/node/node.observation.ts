@@ -11,10 +11,10 @@ const observationNode = async (
   const now = new Date();
   const response = await client.chat({
     messages: [
-      { role: 'system', content: ""},
-      { role: 'user', content: "" }
+      { role: "system", content: "" },
+      { role: "user", content: "" },
     ],
-    format: zodResponseFormat(ObservationSchema, "planner_schema")
+    format: zodResponseFormat(ObservationSchema, "observation_schema"),
   });
 
   console.log("----------");
@@ -32,7 +32,6 @@ const observationNode = async (
       promptTokens: usage?.prompt_tokens || 0,
       completionTokens: usage?.completion_tokens || 0,
       totalTokens: usage?.total_tokens || 0,
-      estimatedCost: usage?.total_tokens || 0 * 0.01,
     },
     duration: now.getTime() - new Date().getTime(),
     completedAt: new Date(),
