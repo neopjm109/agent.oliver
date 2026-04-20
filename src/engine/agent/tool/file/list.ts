@@ -1,10 +1,12 @@
 import * as z from "zod";
 import { Tool } from "../types";
 
+export const listFilesName = "list_files";
+
 export const listFilesTool = (): Tool => {
   return {
     definition: {
-      name: "list_files",
+      name: listFilesName,
       description: "",
       parameters: {
         type: "object",
@@ -25,4 +27,4 @@ export const listFilesTool = (): Tool => {
 export const ListFilesSchema = z.object({
   pathname: z.string().describe("보여줄 파일리스트 경로"),
   recursive: z.boolean().default(true).describe("true일 경우, 하위 디렉토리까지 전체 검색")
-})
+});
