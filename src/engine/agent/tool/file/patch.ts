@@ -1,9 +1,12 @@
+import * as z from "zod";
 import { Tool } from "../types";
 
-const patchFileTool = (): Tool => {
+export const patchFileName = "patch_file";
+
+export const patchFileTool = (): Tool => {
   return {
     definition: {
-      name: "patch_file",
+      name: patchFileName,
       description:
         "Replace a specific portion of a file's content with new content. Useful for large files.",
       parameters: {
@@ -30,4 +33,8 @@ const patchFileTool = (): Tool => {
   };
 };
 
-export default patchFileTool;
+export const patchFilesSchema = z.object({
+  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
+  search: z.string().describe("The exact string/code block to find in the file"),
+  replace: z.string().describe("The new string/code block to replace it with"),
+});
