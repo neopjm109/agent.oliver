@@ -1,18 +1,22 @@
+import {
+  ReasoningEffort,
+  ResponseFormatJSONObject,
+  ResponseFormatJSONSchema,
+  ResponseFormatText
+} from "openai/resources";
+
 export interface Message {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-export interface ChatModel {
+export interface ChatParam {
   model: string;
   messages: Message[];
   temperature: number;
-  reasoning_effort:
-    | "none"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | null;
+  effort: ReasoningEffort;
+  format:
+    | ResponseFormatText
+    | ResponseFormatJSONSchema
+    | ResponseFormatJSONObject;
 }
