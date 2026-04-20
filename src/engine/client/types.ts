@@ -11,9 +11,9 @@ export interface Message {
 }
 
 export interface ChatParam {
-  model: string;
+  model?: string;
   messages: Message[];
-  temperature: number;
+  temperature?: number;
   effort: ReasoningEffort;
   format:
     | ResponseFormatText
