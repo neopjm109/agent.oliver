@@ -31,10 +31,7 @@ class Agent {
       startTime: new Date(),
     };
     this.tools = tools.reduce((acc: any, cur: Tool) => {
-      return {
-        ...acc,
-        [cur.definition.name]: cur
-      }
+      return { ...acc, [cur.definition.name]: cur }
     }, {});
   }
 
@@ -53,18 +50,14 @@ class Agent {
       // Tool Selector
       const selector = await toolSelectorNode(this.client, currentTask, this.tools);
       this.state.results.push(selector);
+      const tool = this.tools.get(selector.toolName)!!;
 
       // Args Generator
-      const generator = await argsGeneratorNode(this.client, currentTask, selector.toolName);
+      const generator = await argsGeneratorNode(this.client, currentTask, tool);
       this.state.results.push(generator);
 
       // Tool Executor
-      const executor = await toolExecutorNode(
-        this.client,
-        currentTask.taskId,
-        this.tools.get(selector.toolName)!!,
-        generator.args,
-      );
+      const executor = await toolExecutorNode(currentTask.taskId, tool, generator.args);
       this.state.results.push(executor);
 
       // Observation
