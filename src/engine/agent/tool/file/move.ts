@@ -1,6 +1,12 @@
 import * as z from "zod";
 import { Tool } from "../types";
 
+export const MoveFilesSchema = z.object({
+  source: z.string().describe("Original path of the file/directory"),
+  destination: z.string().describe("New path (target path) for the file/directory"),
+});
+
+type MoveFileType = z.infer<typeof MoveFilesSchema>;
 export const moveFileName = "move_file";
 
 export const moveFileTool = (): Tool => {
@@ -23,11 +29,6 @@ export const moveFileTool = (): Tool => {
         required: ["source", "destination"],
       },
     },
-    execute: async () => {},
+    execute: async (args: MoveFileType) => {},
   };
 };
-
-export const readFilesSchema = z.object({
-  source: z.string().describe("Original path of the file/directory"),
-  destination: z.string().describe("New path (target path) for the file/directory"),
-});
