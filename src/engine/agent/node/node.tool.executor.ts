@@ -5,20 +5,21 @@ import { TokenUsage, ToolExecutor } from "../types";
 const toolExecutorNode = async (
   client: Client,
   taskId: string,
-  tools: Tool[],
-  toolName: string,
+  tool: Tool,
   args: any,
 ): Promise<ToolExecutor> => {
   const now = new Date();
-  const usage: any = null;
+  
+  const result = await tool.execute(args);
+  const usage: any = result?.usage;
 
   return {
     taskId: taskId,
     result: {
-      taskId: "",
-      toolName: "",
-      args: null, // 실제 호출에 사용된 인자
-      output: null, // 도구의 반환 값 (JSON, String 등)
+      taskId: taskId,
+      toolName: tool.definition.name,
+      args: args, // 실제 호출에 사용된 인자
+      output: result, // 도구의 반환 값 (JSON, String 등)
       isError: false,
       duration: 0,
       completedAt: new Date(),
