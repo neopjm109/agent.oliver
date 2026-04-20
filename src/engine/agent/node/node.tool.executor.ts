@@ -1,9 +1,7 @@
-import Client from "../../client/client";
 import { Tool } from "../tool/types";
-import { TokenUsage, ToolExecutor } from "../types";
+import { ToolExecutor } from "../types";
 
 const toolExecutorNode = async (
-  client: Client,
   taskId: string,
   tool: Tool,
   args: any,
