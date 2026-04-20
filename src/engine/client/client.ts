@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { ChatParam } from "./types";
 
+export const MODEL = "gemma4:e2b";
+
 class Client {
   client: OpenAI;
 
@@ -12,7 +14,7 @@ class Client {
   }
 
   async chat({
-    model = "",
+    model = MODEL,
     messages = [],
     temperature = 0.1,
     effort = "medium",
