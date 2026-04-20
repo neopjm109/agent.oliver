@@ -65,6 +65,8 @@ export interface Summarizer {
   answer: string;
   thought: string;
   tokenUsage: TokenUsage;
+  duration: number;
+  completedAt: Date;
 }
 
 export type NodeResult =
