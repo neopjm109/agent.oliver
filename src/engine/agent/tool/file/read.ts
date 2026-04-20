@@ -6,7 +6,7 @@ export const readFileName = "read_file";
 export const readFileTool = (): Tool => {
   return {
     definition: {
-      name: "read_file",
+      name: readFileName,
       description:
         "Read the contents of a file. Paths are relative to the root directory.",
       parameters: {
