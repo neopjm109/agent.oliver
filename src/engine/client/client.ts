@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { ChatModel } from "./types";
+import { ChatParam } from "./types";
 
 class Client {
   client: OpenAI;
@@ -15,13 +15,15 @@ class Client {
     model = "",
     messages = [],
     temperature = 0.1,
-    reasoning_effort = "medium",
-  }: ChatModel) {
+    effort = "medium",
+    format,
+  }: ChatParam) {
     return await this.client.chat.completions.create({
       model,
       messages,
       temperature,
-      reasoning_effort,
+      reasoning_effort: effort,
+      response_format: format,
     });
   }
 }
