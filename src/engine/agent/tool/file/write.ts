@@ -1,6 +1,12 @@
 import * as z from "zod";
 import { Tool } from "../types";
 
+export const WriteFilesSchema = z.object({
+  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
+  content: z.string().describe("파일에 작성할 순수 내용만 입력하세요."),
+});
+
+type WriteFileType = z.infer<typeof WriteFilesSchema>;
 export const writeFileName = "write_file"
 
 export const writeFileTool = (): Tool => {
@@ -25,11 +31,6 @@ export const writeFileTool = (): Tool => {
         required: ["pathname", "content"],
       },
     },
-    execute: async () => {},
+    execute: async (args: WriteFileType) => {},
   };
 };
-
-export const writeFilesSchema = z.object({
-  pathname: z.string().describe("Path to the file (relative to root, or absolute within root)"),
-  content: z.string().describe("파일에 작성할 순수 내용만 입력하세요."),
-});
