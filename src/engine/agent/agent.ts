@@ -11,7 +11,7 @@ import { AgentState } from "./types";
 class Agent {
   private client: Client;
   private state: AgentState;
-  private tools: Tool[];
+  private tools: Map<string, Tool> = new Map();
 
   constructor(tools: Tool[]) {
     this.client = new Client();
@@ -30,7 +30,12 @@ class Agent {
       },
       startTime: new Date(),
     };
-    this.tools = tools;
+    this.tools = tools.reduce((acc: any, cur: Tool) => {
+      return {
+        ...acc,
+        [cur.definition.name]: cur
+      }
+    }, {});
   }
 
   async run(input: string): Promise<string> {
@@ -38,6 +43,7 @@ class Agent {
     this.state.status = "planning";
     const planner = await plannerNode(this.client, input);
     this.state.tasks = planner.tasks;
+    this.state.results.push(planner);
 
     // Excute
     this.state.status = "executing";
@@ -56,8 +62,7 @@ class Agent {
       const executor = await toolExecutorNode(
         this.client,
         currentTask.taskId,
-        this.tools,
-        selector.toolName,
+        this.tools.get(selector.toolName)!!,
         generator.args,
       );
       this.state.results.push(executor);
