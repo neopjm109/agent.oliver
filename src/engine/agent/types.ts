@@ -19,6 +19,7 @@ export interface Task {
 
 export interface Planner {
   tasks: Task[];
+  thought: string;
   tokenUsage: TokenUsage;
   duration: number;
   completedAt: Date;
@@ -62,6 +63,7 @@ export interface Observation {
 
 export interface Summarizer {
   answer: string;
+  thought: string;
   tokenUsage: TokenUsage;
 }
 
