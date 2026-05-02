@@ -119,38 +119,29 @@ function chooseReplanStrategy(state: TaskState): "task" | "partial" | "full" {
   return "task";
 }
 
-function getNextTask(
-  plan: Plan | undefined | null,
-  current: Task,
-): Task | null {
-  if (!plan) return null;
-
-  const idx = plan.tasks.findIndex((t) => t.id === current.id);
-
-  if (idx === -1) return null;
-
-  return plan.tasks[idx + 1] ?? null;
-}
-
 export const runReAct = async ({
+  type,
   input,
   plan,
   goal,
   tools,
   currentTask,
+  prevContext,
 }: {
+  type: "simple_query" | "complex_spec";
   input: string;
   goal: Goal | string;
   tools: Tool[];
   plan?: Plan;
   currentTask?: Task;
+  prevContext?: string;
 }) => {
   let stepCount = 0;
   let state: TaskState = {
     goal: typeof goal === "string" ? goal : JSON.stringify(goal),
     currentTask,
     history: [],
-    context: "",
+    context: prevContext || "",
     stepCount: 0,
   };
 
@@ -169,7 +160,20 @@ export const runReAct = async ({
     });
 
     if (thought.intent === "finish") {
-      return finalize(state);
+      if (type === "simple_query") {
+        // simple_query의 경우 task 반복이 1회이기때문에, finish로 바로 오는 경우가 있다.
+        const tool = tools.filter(
+          (t) => t.definition.name === "simple_llm_response",
+        )[0]?.execute;
+        const response = await tool({
+          input: input,
+        });
+        return {
+          result: response,
+        };
+      } else {
+        return finalize(state);
+      }
     }
 
     // ------------------------
@@ -204,6 +208,7 @@ export const runReAct = async ({
     // Context 업데이트 (중요)
     // ------------------------
     state.context += "\n" + observation.summary;
+    console.log(state.context);
 
     // ------------------------
     // Decision (retry / replan / finish)
@@ -215,6 +220,7 @@ export const runReAct = async ({
       reliability: observation.signals.reliability,
       stepCount: stepCount,
     });
+    console.log(decision);
 
     // ------------------------
     // Decision 처리
