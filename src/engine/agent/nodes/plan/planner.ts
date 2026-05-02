@@ -7,7 +7,9 @@ import {
   Plan,
   Task,
   TaskResultSchema,
+  TaskSchema,
 } from "./types";
+import { TaskState } from "../execute/types";
 
 async function generateGoal(input: string): Promise<Goal> {
   const prompt = `
@@ -47,7 +49,7 @@ Rules:
 
   const res: any = await chatInput(
     prompt,
-    zodResponseFormat(TaskResultSchema, "task_schema"),
+    zodResponseFormat(TaskResultSchema, "task_result_schema"),
   );
   return JSON.parse(res.choices[0].message.content)?.tasks || [];
 }
@@ -146,5 +148,194 @@ export async function planner(input: string): Promise<Plan> {
   return {
     goal,
     tasks: tasksWithDeps,
+  };
+}
+
+export async function replanTask(input: TaskState): Promise<Task> {
+  const { goal, currentTask, history, context } = input;
+
+  // ------------------------
+  // 1. 최근 실패 요약
+  // ------------------------
+  const recentHistory = history.slice(-5);
+
+  const failureSummary = recentHistory
+    .map((h, i) => {
+      return `
+Step ${i + 1}:
+Thought: ${h.thought}
+Action: ${h.action}
+Observation: ${h.observation}
+`;
+    })
+    .join("\n");
+
+  // ------------------------
+  // 2. Prompt 구성
+  // ------------------------
+  const prompt = `
+You are an AI planner.
+
+Goal:
+${goal}
+
+Failed Task:
+Name: ${currentTask!!.name}
+Description: ${currentTask!!.description}
+
+Recent Execution History:
+${failureSummary}
+
+Context:
+${context.slice(0, 1000)}
+
+---
+
+Your job is to FIX this task.
+
+Rules:
+- Keep the SAME goal
+- DO NOT repeat the same approach
+- Modify strategy to avoid previous failure
+- Task must be executable
+- Be specific and actionable
+`;
+
+  // ------------------------
+  // 3. LLM 호출
+  // ------------------------
+
+  const res: any = await chatInput(
+    prompt,
+    zodResponseFormat(TaskSchema, "task_schema"),
+  );
+  return JSON.parse(res.choices[0].message.content)?.tasks || [];
+}
+
+export async function replanPartial(plan: Plan, state: TaskState) {
+  const completed = plan.tasks.filter((t) => t.status === "done");
+
+  const prompt = `
+We failed at task:
+${state.currentTask?.description ?? ""}
+
+Completed tasks:
+${JSON.stringify(completed)}
+
+Generate new tasks ONLY for the remaining work.
+`;
+
+  const res: any = await chatInput(
+    prompt,
+    zodResponseFormat(TaskResultSchema, "task_result_schema"),
+  );
+  const parsed = JSON.parse(res.choices[0].message.content)?.tasks || [];
+  return {
+    ...plan,
+    tasks: [...completed, ...parsed],
+  };
+}
+
+export async function replanFull(
+  originalInput: string,
+  state: TaskState,
+  previousPlan: Plan,
+): Promise<Plan> {
+  const { history, context } = state;
+
+  // ------------------------
+  // 1. 실패 요약
+  // ------------------------
+  const recentHistory = history.slice(-8);
+
+  const failureSummary = recentHistory
+    .map(
+      (h, i) => `
+Step ${i + 1}
+Thought: ${h.thought}
+Action: ${h.action}
+Observation: ${h.observation}
+`,
+    )
+    .join("\n");
+
+  // ------------------------
+  // 2. 성공 Task 추출
+  // ------------------------
+  const completedTasks =
+    previousPlan?.tasks
+      .filter((t) => t.status === "done")
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        output: t.outputs,
+      })) ?? [];
+
+  // ------------------------
+  // 3. Prompt
+  // ------------------------
+  const prompt = `
+You are an expert planner.
+
+Goal:
+${JSON.stringify(previousPlan.goal)}
+
+Original Specification:
+${originalInput.slice(0, 2000)}
+
+---
+
+Previous Failed Plan:
+${JSON.stringify(previousPlan, null, 2)}
+
+Completed Tasks (DO NOT repeat):
+${JSON.stringify(completedTasks, null, 2)}
+
+Execution Failures:
+${failureSummary}
+
+Context:
+${context.slice(0, 1000)}
+
+---
+
+Your job:
+Create a NEW execution plan.
+
+Rules:
+- DO NOT repeat failed strategies
+- DO NOT redo completed tasks
+- You MAY change the approach completely
+- Keep the same goal
+- Tasks must be executable
+- Include dependencies
+`;
+
+  // ------------------------
+  // 4. LLM 호출
+  // ------------------------
+  const res: any = await chatInput(
+    prompt,
+    zodResponseFormat(TaskResultSchema, "task_result_schema"),
+  );
+  const tasks = JSON.parse(res.choices[0].message.content)?.tasks || [];
+
+  // 3. Dependency 생성
+  const tasksWithDeps: Task[] = await generateDependencies(tasks);
+
+  // ------------------------
+  // 6. validation
+  // ------------------------
+  validatePlan(tasks);
+
+  // ------------------------
+  // 5. completed task 유지
+  // ------------------------
+  const completed: Task[] =
+    previousPlan?.tasks.filter((t) => t.status === "done") ?? [];
+
+  return {
+    goal: previousPlan.goal,
+    tasks: [...completed, ...tasksWithDeps],
   };
 }

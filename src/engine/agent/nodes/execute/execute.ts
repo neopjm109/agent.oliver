@@ -1,10 +1,11 @@
 import { Tool, ToolAction } from "../../tools/types";
-import { Goal, Task } from "../plan/types";
+import { replanFull, replanPartial, replanTask } from "../plan/planner";
+import { Goal, Plan, Task } from "../plan/types";
 import { act } from "./action";
 import { finalize } from "./finalize";
 import { createObservation } from "./observation";
 import { think } from "./think";
-import { Observation, TaskState, Thought } from "./types";
+import { Decision, DecisionSignals, TaskState } from "./types";
 
 const MAX_STEPS = 10;
 
@@ -19,13 +20,129 @@ async function executeTool(tools: Tool[], action: ToolAction) {
   return await toolFn(action.args);
 }
 
+function decideNextAction(signals: DecisionSignals): Decision {
+  const { success, observationType, relevance, reliability, stepCount } =
+    signals;
+
+  // ------------------------
+  // 1. 성공 → 현재 Task 종료
+  // ------------------------
+  if (stepCount >= MAX_STEPS) {
+    return "finish";
+  }
+
+  if (success && relevance > 0.5 && reliability > 0.7) {
+    return "finish";
+  }
+
+  // ------------------------
+  // 2. retry 조건
+  // ------------------------
+  if (!success && relevance > 0.5 && stepCount < 2) {
+    return "retry";
+  }
+
+  // ------------------------
+  // 3. partial → retry 우선
+  // ------------------------
+  if (observationType === "partial" && stepCount < 2) {
+    return "retry";
+  }
+
+  // ------------------------
+  // 4. 오래 실패 → replan
+  // ------------------------
+  if (stepCount > 5 && !success) {
+    return "replan";
+  }
+
+  // ------------------------
+  // fallback
+  // ------------------------
+  return "replan";
+}
+
+export function isTaskScopedFailure(state: TaskState): boolean {
+  const recent = state.history.slice(-4);
+
+  if (recent.length < 2) return false;
+
+  // 최근 observation에서 relevance 추출 (간단 가정)
+  const lowRelevanceCount = recent.filter((h) =>
+    h.observation?.includes("irrelevant"),
+  ).length;
+
+  // 👉 대부분 relevance 유지
+  const relevanceOk = lowRelevanceCount <= 1;
+
+  // 👉 같은 task 반복
+  const sameTask = state.currentTask != null;
+
+  // 👉 retry 진행 중
+  const retrying = state.stepCount > 0;
+
+  return relevanceOk && sameTask && retrying;
+}
+
+export function isGlobalFailure(state: TaskState): boolean {
+  const recent = state.history.slice(-6);
+
+  if (recent.length < 3) return false;
+
+  // relevance 낮은 횟수
+  const lowRelevanceCount = recent.filter((h) =>
+    h.observation?.includes("irrelevant"),
+  ).length;
+
+  // 실패 반복
+  const repeatedFailures = state.stepCount >= 2;
+
+  return lowRelevanceCount >= 3 && repeatedFailures;
+}
+
+function chooseReplanStrategy(state: TaskState): "task" | "partial" | "full" {
+  // 대부분 여기 걸려야 정상
+  if (state.stepCount < 2) {
+    return "task";
+  }
+
+  // 특정 task만 문제
+  if (isTaskScopedFailure(state)) {
+    return "partial";
+  }
+
+  // 전체 구조 문제
+  if (isGlobalFailure(state)) {
+    return "full";
+  }
+
+  return "task";
+}
+
+function getNextTask(
+  plan: Plan | undefined | null,
+  current: Task,
+): Task | null {
+  if (!plan) return null;
+
+  const idx = plan.tasks.findIndex((t) => t.id === current.id);
+
+  if (idx === -1) return null;
+
+  return plan.tasks[idx + 1] ?? null;
+}
+
 export const runReAct = async ({
+  input,
+  plan,
   goal,
   tools,
   currentTask,
 }: {
+  input: string;
   goal: Goal | string;
   tools: Tool[];
+  plan?: Plan;
   currentTask?: Task;
 }) => {
   let stepCount = 0;
@@ -35,8 +152,8 @@ export const runReAct = async ({
     history: [],
     context: "",
     stepCount: 0,
-    retryCount: 0,
   };
+
   while (stepCount < MAX_STEPS) {
     stepCount++;
 
@@ -89,7 +206,7 @@ export const runReAct = async ({
     state.context += "\n" + observation.summary;
 
     // ------------------------
-    // Decision (retry / replan / continue)
+    // Decision (retry / replan / finish)
     // ------------------------
     const decision = decideNextAction({
       success: observation.success,
@@ -97,44 +214,26 @@ export const runReAct = async ({
       relevance: observation.signals.relevance,
       reliability: observation.signals.reliability,
       stepCount: stepCount,
-      retryCount: state.retryCount,
     });
 
     // ------------------------
     // Decision 처리
     // ------------------------
     if (decision === "retry") {
-      state.retryCount++;
-
-      action = mutateAction(action);
-
       continue;
     }
 
     if (decision === "replan") {
-      state.retryCount = 0;
+      const strategy = chooseReplanStrategy(state);
 
-      if (state.plan) {
-        state.plan = await replan(state);
-        state.currentTask = state.plan.tasks[0];
-      }
-
-      continue;
-    }
-
-    if (decision === "continue") {
-      state.retryCount = 0;
-
-      // Task 완료 체크 (간단 버전)
-      if (state.currentTask && observation.success) {
-        const nextTask = getNextTask(state.plan, state.currentTask);
-
-        if (nextTask) {
-          state.currentTask = nextTask;
-          state.context = observation.summary;
-        } else {
-          return finalize(state);
-        }
+      if (strategy === "task") {
+        state.currentTask = await replanTask(state);
+      } else if (strategy === "partial") {
+        plan = await replanPartial(plan!!, state);
+        return finalize(state);
+      } else if (strategy === "full") {
+        plan = await replanFull(input, state, plan!!);
+        state.currentTask = plan!!.tasks[0];
       }
 
       continue;

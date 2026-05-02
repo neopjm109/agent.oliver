@@ -1,5 +1,5 @@
 import z from "zod";
-import { Goal, Task } from "../plan/types";
+import { Goal, Plan, Task } from "../plan/types";
 import { Intent } from "../../types";
 
 export const IntentSchema = z.enum([
@@ -43,7 +43,6 @@ export type TaskState = {
   history: Step[];
   context: string;
   stepCount: number;
-  retryCount: number;
 };
 
 export type ObservationType = "info" | "error" | "partial";
@@ -75,3 +74,13 @@ export type ObservationInput = {
 export const ObservationSummarySchema = z.object({
   summary: z.string(),
 });
+
+export type Decision = "retry" | "replan" | "continue" | "finish" | "verify";
+
+export type DecisionSignals = {
+  success: boolean;
+  observationType: "info" | "error" | "partial";
+  relevance: number;
+  reliability: number;
+  stepCount: number;
+};

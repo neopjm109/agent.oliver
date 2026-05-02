@@ -9,7 +9,7 @@ import RedisClient from "./utils/redis";
 class Agent {
   // private redis: RedisClient;
   //   private state: AgentState;
-  // private tools: Map<string, Tool> = new Map();
+  private tools: Tool[] = [];
 
   // constructor(redis: RedisClient, tools: Tool[]) {
   //   this.redis = redis;
@@ -28,7 +28,9 @@ class Agent {
     if (classification.type === "simple_query") {
       // 2-1. 만약 simple_query인 경우 바로 실행
       runReAct({
+        input,
         goal: input,
+        tools: this.tools,
       });
     } else {
       // 2-2. 만약 complex_spec인 경우, Plan을 작성
@@ -36,7 +38,10 @@ class Agent {
 
       for (const task of plan.tasks) {
         runReAct({
+          input,
           goal: plan.goal,
+          tools: this.tools,
+          plan: plan,
           currentTask: task,
         });
       }
