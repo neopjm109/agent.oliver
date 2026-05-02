@@ -1,4 +1,5 @@
-import { TokenUsage } from "../types";
+import z from "zod";
+import { Intent, TokenUsage } from "../types";
 
 export interface ToolResult {
   taskId: string;
@@ -21,9 +22,21 @@ export interface ToolCall {
   };
 }
 
+export type ToolAction = {
+  tool: string;
+  args: Record<string, any>;
+};
+
+export const ToolActionSchema = z.object({
+  tool: z.string(),
+  args: z.any(),
+});
+
 export interface ToolDefinition {
   name: string;
   description: string;
+  intents: Intent[];
+  tags?: string[];
   parameters?: {
     type: "object";
     properties: Record<string, any>;

@@ -13,13 +13,12 @@ app.get("/query/:q", (req, res) => {
   const { q } = req.params; // 경로에서 'id' 변수 추출
   const agent = new Agent();
   agent.run(q);
-  agent.run(`
-# 제목
-## 서브제목
-- 테스트중입니다
-- 이걸 복잡한걸로 받아줄까요?
-- 단순하게 할 땐 안되더라구요
-    `);
+  res.send("Hello World!");
+});
+
+app.get("/prd", (req, res) => {
+  const agent = new Agent();
+  agent.run(``);
   res.send("Hello World!");
 });
 

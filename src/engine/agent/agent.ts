@@ -28,7 +28,7 @@ class Agent {
     if (classification.type === "simple_query") {
       // 2-1. 만약 simple_query인 경우 바로 실행
       runReAct({
-        type: classification.type,
+        goal: input,
       });
     } else {
       // 2-2. 만약 complex_spec인 경우, Plan을 작성
@@ -36,7 +36,8 @@ class Agent {
 
       for (const task of plan.tasks) {
         runReAct({
-          type: classification.type,
+          goal: plan.goal,
+          currentTask: task,
         });
       }
     }

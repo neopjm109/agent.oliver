@@ -5,6 +5,16 @@ export function clamp(n: number, min = 0, max = 1) {
   return Math.max(min, Math.min(max, n));
 }
 
+// 최대 길이 자르기
+export function truncate(text: string, max = 1000): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max);
+}
+
+export function safeToLowerCase(text: string): string {
+  return (text || "").toLowerCase();
+}
+
 // 토큰 사용량 계산
 export const calculateTotalTokenUsage = (
   origin: TokenUsage,
