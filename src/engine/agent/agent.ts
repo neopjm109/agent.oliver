@@ -35,6 +35,7 @@ class Agent {
           goal: input,
           tools: this.tools,
         });
+        console.log(result);
         return result.result || "";
       } else {
         // 2-2. 만약 complex_spec인 경우, Plan을 작성
@@ -52,6 +53,7 @@ class Agent {
             prevContext: context,
           });
           context += "\n" + (result.result || "");
+          console.log(result);
         }
         return context;
       }

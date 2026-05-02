@@ -62,6 +62,7 @@ function decideNextAction(signals: DecisionSignals): Decision {
   return "replan";
 }
 
+// 특정 Task 문제로 부분 replan 해야하는 경우
 export function isTaskScopedFailure(state: TaskState): boolean {
   const recent = state.history.slice(-4);
 
@@ -84,6 +85,7 @@ export function isTaskScopedFailure(state: TaskState): boolean {
   return relevanceOk && sameTask && retrying;
 }
 
+// 최근 6개 중 실패 횟수가 많으면 전체적인 실패로 판단
 export function isGlobalFailure(state: TaskState): boolean {
   const recent = state.history.slice(-6);
 
@@ -100,6 +102,7 @@ export function isGlobalFailure(state: TaskState): boolean {
   return lowRelevanceCount >= 3 && repeatedFailures;
 }
 
+// Replan 전략 확인
 function chooseReplanStrategy(state: TaskState): "task" | "partial" | "full" {
   // 대부분 여기 걸려야 정상
   if (state.stepCount < 2) {
@@ -208,7 +211,6 @@ export const runReAct = async ({
     // Context 업데이트 (중요)
     // ------------------------
     state.context += "\n" + observation.summary;
-    console.log(state.context);
 
     // ------------------------
     // Decision (retry / replan / finish)
@@ -236,6 +238,7 @@ export const runReAct = async ({
         state.currentTask = await replanTask(state);
       } else if (strategy === "partial") {
         plan = await replanPartial(plan!!, state);
+        // 현재 부분까지 완료된 상태로 다음 진행을 위해 finalize 진행
         return finalize(state);
       } else if (strategy === "full") {
         plan = await replanFull(input, state, plan!!);
