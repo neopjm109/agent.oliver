@@ -2,7 +2,7 @@ import {
   ReasoningEffort,
   ResponseFormatJSONObject,
   ResponseFormatJSONSchema,
-  ResponseFormatText,
+  ResponseFormatText
 } from "openai/resources";
 
 export interface Message {
@@ -10,15 +10,13 @@ export interface Message {
   content: string;
 }
 
-export type ChatFormat =
-  | ResponseFormatText
-  | ResponseFormatJSONSchema
-  | ResponseFormatJSONObject;
-
 export interface ChatParam {
   model?: string;
   messages: Message[];
   temperature?: number;
   effort?: ReasoningEffort;
-  format: ChatFormat;
+  format:
+    | ResponseFormatText
+    | ResponseFormatJSONSchema
+    | ResponseFormatJSONObject;
 }

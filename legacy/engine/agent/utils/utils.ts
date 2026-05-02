@@ -1,11 +1,5 @@
 import { TokenUsage } from "../types";
 
-// 점수 최소값, 최대값 제어
-export function clamp(n: number, min = 0, max = 1) {
-  return Math.max(min, Math.min(max, n));
-}
-
-// 토큰 사용량 계산
 export const calculateTotalTokenUsage = (
   origin: TokenUsage,
   source: TokenUsage,
