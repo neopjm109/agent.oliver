@@ -10,24 +10,24 @@ export const ReadFilesSchema = z.object({
 type ReadFileType = z.infer<typeof ReadFilesSchema>;
 export const readFileName = "read_file";
 
-export const readFileTool = (): Tool => {
-  return {
-    definition: {
-      name: readFileName,
-      description:
-        "Read the contents of a file. Paths are relative to the root directory.",
-      parameters: {
-        type: "object",
-        properties: {
-          pathname: {
-            type: "string",
-            description:
-              "Path to the file (relative to root, or absolute within root)",
-          },
+export const readFileTool: Tool = {
+  definition: {
+    name: readFileName,
+    description:
+      "Read the contents of a file. Paths are relative to the root directory.",
+    intents: ["search"],
+    tags: ["file", "read", "search"],
+    parameters: {
+      type: "object",
+      properties: {
+        pathname: {
+          type: "string",
+          description:
+            "Path to the file (relative to root, or absolute within root)",
         },
-        required: ["pathname"],
       },
+      required: ["pathname"],
     },
-    execute: async (args: ReadFileType) => {},
-  };
+  },
+  execute: async (args: ReadFileType) => {},
 };

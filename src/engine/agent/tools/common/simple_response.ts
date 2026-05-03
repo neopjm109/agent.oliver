@@ -1,7 +1,7 @@
 import { chatInput } from "../../../client/client";
 import { Tool } from "../types";
 
-const SimpleResponse: Tool = {
+const simpleResponseTool: Tool = {
   definition: {
     name: "simple_llm_response",
     description:
@@ -22,11 +22,9 @@ const SimpleResponse: Tool = {
   },
   execute: async (args: { input: string; instruction?: string }) => {
     const { input } = args;
-
     const result = await chatInput(input, { type: "text" });
-
     return result.choices[0].message?.content || "";
   },
 };
 
-export default SimpleResponse;
+export default simpleResponseTool;

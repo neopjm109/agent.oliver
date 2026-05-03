@@ -1,13 +1,11 @@
 import { Tool } from "../types";
 
-const calculateTool = (): Tool => {
-  return {
-    definition: {
-      name: "calculate",
-      description: "",
-    },
-    execute: async () => {},
-  };
+const calculateTool: Tool = {
+  definition: {
+    name: "calculate",
+    description: "",
+  },
+  execute: async () => {},
 };
 
 export default calculateTool;

@@ -1,14 +1,6 @@
 import z from "zod";
-import { Goal, Plan, Task } from "../plan/types";
-import { Intent } from "../../types";
-
-export const IntentSchema = z.enum([
-  "search",
-  "analyze",
-  "compute",
-  "verify",
-  "finish",
-]);
+import { Intent, IntentSchema } from "../../types";
+import { Goal, Task } from "../plan/types";
 
 // Action 횟수
 export type Step = {

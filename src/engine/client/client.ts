@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { ChatFormat, ChatParam } from "./types";
+import { ChatFormat, ChatParam, Message } from "./types";
 
 export const MODEL = "gemma4:e2b";
 
@@ -27,6 +27,16 @@ export const chat = async ({
 export const chatInput = async (input: string, format?: ChatFormat) => {
   return await chat({
     messages: [{ role: "user", content: input }],
+    format: format || { type: "json_object" },
+  });
+};
+
+export const chatMessages = async (
+  messages: Message[],
+  format?: ChatFormat,
+) => {
+  return await chat({
+    messages: messages,
     format: format || { type: "json_object" },
   });
 };

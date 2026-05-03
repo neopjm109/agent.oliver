@@ -1,13 +1,11 @@
 import { Tool } from "../types";
 
-const codeTool = (): Tool => {
-  return {
-    definition: {
-      name: "code",
-      description: "",
-    },
-    execute: async () => {},
-  };
+const codeTool: Tool = {
+  definition: {
+    name: "code",
+    description: "",
+  },
+  execute: async () => {},
 };
 
 export default codeTool;

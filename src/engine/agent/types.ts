@@ -1,3 +1,5 @@
+import z from "zod";
+
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
@@ -6,4 +8,14 @@ export interface TokenUsage {
 }
 
 // 생각 의도
-export type Intent = "search" | "analyze" | "compute" | "verify" | "finish";
+export const IntentSchema = z.enum([
+  "search",
+  "analyze",
+  "compute",
+  "generate",
+  "execute",
+  "verify",
+  "finish",
+]);
+
+export type Intent = z.infer<typeof IntentSchema>;

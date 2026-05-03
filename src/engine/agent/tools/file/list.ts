@@ -12,23 +12,23 @@ export const ListFilesSchema = z.object({
 type ListFilesType = z.infer<typeof ListFilesSchema>;
 export const listFilesName = "list_files";
 
-export const listFilesTool = (): Tool => {
-  return {
-    definition: {
-      name: listFilesName,
-      description: "",
-      parameters: {
-        type: "object",
-        properties: {
-          pathname: { type: "string", description: "보여줄 파일리스트 경로" },
-          recursive: {
-            type: "boolean",
-            description: "true일 경우, 하위 디렉토리까지 전체 검색",
-          },
+export const listFilesTool: Tool = {
+  definition: {
+    name: listFilesName,
+    description: "",
+    intents: ["search"],
+    tags: ["file", "list", "search", "directory"],
+    parameters: {
+      type: "object",
+      properties: {
+        pathname: { type: "string", description: "보여줄 파일리스트 경로" },
+        recursive: {
+          type: "boolean",
+          description: "true일 경우, 하위 디렉토리까지 전체 검색",
         },
-        required: ["pathname"],
       },
+      required: ["pathname"],
     },
-    execute: async (args: ListFilesType) => {},
-  };
+  },
+  execute: async (args: ListFilesType) => {},
 };

@@ -3,14 +3,14 @@ import { Classification } from "./nodes/classifier/types";
 import { runReAct } from "./nodes/execute/execute";
 import { planner } from "./nodes/plan/planner";
 import { Plan } from "./nodes/plan/types";
-import SimpleResponse from "./tools/common/simple_response";
+import { ToolList } from "./tools";
+import simpleResponseTool from "./tools/common/simple_response";
 import { Tool } from "./tools/types";
-import RedisClient from "./utils/redis";
 
 class Agent {
   // private redis: RedisClient;
   //   private state: AgentState;
-  private tools: Tool[] = [SimpleResponse];
+  private tools: Tool[] = ToolList;
 
   // constructor(redis: RedisClient, tools: Tool[]) {
   //   this.redis = redis;
