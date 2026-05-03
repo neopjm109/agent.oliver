@@ -22,7 +22,6 @@ export const translateTool: Tool = {
       "Translates text into a target language. Can return either a simple translation or a detailed explanation including vocabulary and grammar breakdown.",
     intents: ["generate"],
     tags: ["translation", "language", "nlp", "education"],
-
     parameters: {
       type: "object",
       properties: {

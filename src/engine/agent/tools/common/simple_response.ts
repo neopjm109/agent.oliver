@@ -6,9 +6,7 @@ const simpleResponseTool: Tool = {
     name: "simple_llm_response",
     description:
       "Use LLM to analyze or generate a direct response for a given input.",
-
     intents: ["analyze"],
-
     parameters: {
       type: "object",
       properties: {

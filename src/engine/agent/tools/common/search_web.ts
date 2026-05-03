@@ -4,6 +4,7 @@ const searchWebTool: Tool = {
   definition: {
     name: "search_web",
     description: "",
+    intents: ["search"],
   },
   execute: async () => {},
 };

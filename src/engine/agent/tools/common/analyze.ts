@@ -1,8 +1,8 @@
 import { zodResponseFormat } from "openai/helpers/zod.js";
 import z from "zod";
-import { chatInput, chatMessages } from "../../../client/client";
-import { Tool } from "../types";
+import { chatMessages } from "../../../client/client";
 import { IntentSchema } from "../../types";
+import { Tool } from "../types";
 
 const AnalyzeSchema = z.object({
   intent: IntentSchema,

@@ -4,6 +4,7 @@ const calculateTool: Tool = {
   definition: {
     name: "calculate",
     description: "",
+    intents: ["compute"],
   },
   execute: async () => {},
 };
