@@ -10,7 +10,7 @@ export type Step = {
 };
 
 export type ThinkInput = {
-  goal: Goal | string;
+  goal: Goal;
   currentTask?: string; // task의 description
 
   history: Step[];
@@ -30,7 +30,7 @@ export const ThoughtSchema: z.ZodType<Thought> = z.object({
 });
 
 export type TaskState = {
-  goal: string;
+  goal: Goal;
   currentTask?: Task;
   history: Step[];
   context: string;
@@ -74,5 +74,6 @@ export type DecisionSignals = {
   observationType: "info" | "error" | "partial";
   relevance: number;
   reliability: number;
+  completeness: number;
   stepCount: number;
 };

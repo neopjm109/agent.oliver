@@ -5,7 +5,13 @@ import { act } from "./action";
 import { finalize } from "./finalize";
 import { createObservation } from "./observation";
 import { think } from "./think";
-import { Decision, DecisionSignals, TaskState } from "./types";
+import {
+  Decision,
+  DecisionSignals,
+  Observation,
+  TaskState,
+  Thought,
+} from "./types";
 
 const MAX_STEPS = 10;
 
@@ -21,38 +27,45 @@ async function executeTool(tools: Tool[], action: ToolAction) {
 }
 
 function decideNextAction(signals: DecisionSignals): Decision {
-  const { success, observationType, relevance, reliability, stepCount } =
-    signals;
+  const {
+    success,
+    observationType,
+    relevance,
+    reliability,
+    completeness,
+    stepCount,
+  } = signals;
+
+  const score = completeness * 0.5 + relevance * 0.2 + reliability * 0.3;
+  console.log("nextAction score: ", score);
 
   // ------------------------
-  // 1. 성공 → 현재 Task 종료
+  // 1. 종료 조건 (핵심)
   // ------------------------
-  if (stepCount >= MAX_STEPS) {
+  if (
+    success &&
+    (completeness >= 0.9 || // 🔥 최우선
+      score >= 0.7)
+  ) {
     return "finish";
   }
 
-  if (success && relevance > 0.5 && reliability > 0.7) {
+  // step limit 보호
+  if (stepCount >= MAX_STEPS) {
     return "finish";
   }
 
   // ------------------------
   // 2. retry 조건
   // ------------------------
-  if (!success && relevance > 0.5 && stepCount < 2) {
+  if ((!success || observationType === "partial") && stepCount < 3) {
     return "retry";
   }
 
   // ------------------------
-  // 3. partial → retry 우선
+  // 3. 오래 실패 → replan
   // ------------------------
-  if (observationType === "partial" && stepCount < 2) {
-    return "retry";
-  }
-
-  // ------------------------
-  // 4. 오래 실패 → replan
-  // ------------------------
-  if (stepCount > 5 && !success) {
+  if (stepCount >= 3 && !success) {
     return "replan";
   }
 
@@ -126,23 +139,20 @@ export const runReAct = async ({
   type,
   input,
   plan,
-  goal,
   tools,
   currentTask,
   prevContext,
 }: {
   type: "simple_query" | "complex_spec";
   input: string;
-  goal: Goal | string;
   tools: Tool[];
-  plan?: Plan;
-  currentTask?: Task;
+  plan: Plan;
+  currentTask: Task;
   prevContext?: string;
 }) => {
-  console.log(input);
   let stepCount = 0;
   let state: TaskState = {
-    goal: typeof goal === "string" ? goal : JSON.stringify(goal),
+    goal: plan.goal,
     currentTask,
     history: [],
     context: prevContext || "",
@@ -155,16 +165,17 @@ export const runReAct = async ({
     // ------------------------
     // Think
     // ------------------------
-    console.log("// Thought ------------------------");
-    const thought = await think({
+    console.log("// Thought start ------------------------");
+    const thought: Thought = await think({
       goal: state.goal,
-      currentTask: state.currentTask?.description,
+      currentTask: currentTask.description,
       history: state.history,
       context: state.context,
       maxSteps: MAX_STEPS,
     });
-    console.log(thought);
-    console.log("// ------------------------");
+    console.log("intent: ", thought.intent);
+    console.log("reason: ", thought.reasoning);
+    console.log("// Thought end ------------------------");
 
     if (thought.intent === "finish") {
       if (type === "simple_query") {
@@ -186,30 +197,36 @@ export const runReAct = async ({
     // ------------------------
     // Action
     // ------------------------
-    console.log("// Action ------------------------");
-    let action = await act(thought, tools, state.context);
-    console.log(action);
-    console.log("// ------------------------");
+    console.log("// Action start------------------------");
+    const action: ToolAction = await act(
+      currentTask,
+      thought,
+      tools,
+      state.context,
+    );
+    console.log("tool name: ", action.tool);
+    console.log("tool args: ", JSON.stringify(action.args));
+    console.log("// Action end------------------------");
 
     // ------------------------
     // Tool 실행
     // ------------------------
-    console.log("// Tool Result ------------------------");
+    console.log("// Tool start ------------------------");
     const result = await executeTool(tools, action);
-    console.log(result);
-    console.log("// ------------------------");
+    console.log("tool result: ", JSON.stringify(result || "N/A"));
+    console.log("// Tool end ------------------------");
 
     // ------------------------
     // Observation
     // ------------------------
-    console.log("// Observation ------------------------");
-    const observation = await createObservation({
+    console.log("// Observation start ------------------------");
+    const observation: Observation = await createObservation({
       tool: action.tool,
       result: JSON.stringify(result || ""),
       context: state.context,
     });
-    console.log(observation);
-    console.log("// ------------------------");
+    console.log("observation result: ", JSON.stringify(observation));
+    console.log("// Observation end ------------------------");
 
     // ------------------------
     // History 업데이트
@@ -233,6 +250,7 @@ export const runReAct = async ({
       observationType: observation.type,
       relevance: observation.signals.relevance,
       reliability: observation.signals.reliability,
+      completeness: observation.signals.completeness,
       stepCount: stepCount,
     });
     console.log(decision);
@@ -248,14 +266,14 @@ export const runReAct = async ({
       const strategy = chooseReplanStrategy(state);
 
       if (strategy === "task") {
-        state.currentTask = await replanTask(state);
+        currentTask = await replanTask(state);
       } else if (strategy === "partial") {
         plan = await replanPartial(plan!!, state);
         // 현재 부분까지 완료된 상태로 다음 진행을 위해 finalize 진행
         return finalize(state);
       } else if (strategy === "full") {
         plan = await replanFull(input, state, plan!!);
-        state.currentTask = plan!!.tasks[0];
+        state.currentTask = plan.tasks[0];
       }
 
       continue;

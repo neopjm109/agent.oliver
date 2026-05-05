@@ -67,18 +67,6 @@ Output to evaluate:
 ${output}
 
 ${criteriaText}
-
----
-
-Return ONLY valid JSON:
-
-{
-  "is_valid": boolean,
-  "score": number,
-  "issues": ["string"],
-  "suggestions": ["string"],
-  "improved_output": "string"
-}
 `;
 
     try {

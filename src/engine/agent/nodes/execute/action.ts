@@ -4,6 +4,7 @@ import { Tool, ToolAction, ToolActionSchema } from "../../tools/types";
 import { Intent } from "../../types";
 import { truncate } from "../../utils/utils";
 import { Thought } from "./types";
+import { Task } from "../plan/types";
 
 // ------------------------
 // Tool Filtering
@@ -66,6 +67,7 @@ function fallbackToolAction(tools: Tool[]): ToolAction {
 // ------------------------
 
 export async function act(
+  currentTask: Task,
   thought: Thought,
   tools: Tool[],
   context: string,
@@ -84,7 +86,6 @@ export async function act(
   // ------------------------
   candidates = rankTools(candidates, context);
   candidates = selectTopTools(candidates, 8);
-  console.log(candidates);
 
   // ------------------------
   // 3. LLM에 전달할 Tool 설명 생성
@@ -109,6 +110,9 @@ Intent: ${thought.intent}
 
 Reasoning:
 ${thought.reasoning}
+
+currentTaks:
+${currentTask.description}
 
 Context:
 ${truncate(context)}
@@ -146,7 +150,6 @@ Rules:
   const selectedTool = candidates.find(
     (t) => t.definition.name === parsed!.tool,
   );
-  console.log(selectedTool);
 
   if (!selectedTool) {
     return fallbackToolAction(candidates);

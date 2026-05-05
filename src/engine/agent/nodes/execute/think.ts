@@ -54,7 +54,7 @@ export async function think(input: ThinkInput): Promise<Thought> {
 You are an AI agent using the ReAct pattern.
 
 Goal:
-${goal}
+${JSON.stringify(goal)}
 
 Current Task:
 ${currentTask ?? "N/A"}

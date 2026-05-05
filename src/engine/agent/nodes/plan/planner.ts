@@ -132,15 +132,15 @@ function detectCycle(tasks: Task[]) {
 export async function planner(input: string): Promise<Plan> {
   // 1. Goal 생성
   const goal = await generateGoal(input);
-  console.log(`goal: ${JSON.stringify(goal, null, 2)}`);
+  console.log(`goal: ${JSON.stringify(goal)}`);
 
   // 2. Task 생성
   const tasks = await generateTasks(goal, input);
-  console.log(`tasks: ${JSON.stringify(tasks, null, 2)}`);
+  console.log(`tasks: ${JSON.stringify(tasks)}`);
 
   // 3. Dependency 생성
   const tasksWithDeps = await generateDependencies(tasks);
-  console.log(`tasksWithDeps: ${JSON.stringify(tasksWithDeps, null, 2)}`);
+  console.log(`tasksWithDeps: ${JSON.stringify(tasksWithDeps)}`);
 
   // 4. 검증
   validatePlan(tasksWithDeps);
