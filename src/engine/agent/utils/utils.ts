@@ -1,4 +1,6 @@
 import { TokenUsage } from "../types";
+import { exec } from "child_process";
+import { promisify } from "util";
 
 // 점수 최소값, 최대값 제어
 export function clamp(n: number, min = 0, max = 1) {
@@ -32,3 +34,5 @@ export const calculateTotalTokenUsage = (
     estimatedCost,
   };
 };
+
+export const execAsync = promisify(exec);
