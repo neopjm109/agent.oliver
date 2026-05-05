@@ -205,7 +205,7 @@ export const runReAct = async ({
     console.log("// Observation ------------------------");
     const observation = await createObservation({
       tool: action.tool,
-      result: JSON.parse(result || ""),
+      result: JSON.stringify(result || ""),
       context: state.context,
     });
     console.log(observation);
