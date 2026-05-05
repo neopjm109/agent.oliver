@@ -176,7 +176,7 @@ export const runReAct = async ({
           input: input,
         });
         return {
-          result: response,
+          result: response?.response,
         };
       } else {
         return finalize(state);
@@ -205,7 +205,7 @@ export const runReAct = async ({
     console.log("// Observation ------------------------");
     const observation = await createObservation({
       tool: action.tool,
-      result: result?.choices[0].message.content || "",
+      result: JSON.parse(result || ""),
       context: state.context,
     });
     console.log(observation);

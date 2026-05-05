@@ -110,6 +110,6 @@ Return JSON with the following fields:
       zodResponseFormat(SummarizeSchema, "summarize_schema"),
     );
 
-    return result;
+    return JSON.parse(result.choices[0].message?.content || "");
   },
 };

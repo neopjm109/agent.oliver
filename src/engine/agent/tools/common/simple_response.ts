@@ -21,7 +21,9 @@ const simpleResponseTool: Tool = {
   execute: async (args: { input: string; instruction?: string }) => {
     const { input } = args;
     const result = await chatInput(input, { type: "text" });
-    return result.choices[0].message?.content || "";
+    return {
+      response: result.choices[0].message?.content || "",
+    };
   },
 };
 

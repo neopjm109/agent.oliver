@@ -108,6 +108,6 @@ If mode is "explain", also include:
       zodResponseFormat(TranslateSchema, "translate_schema"),
     );
 
-    return result;
+    return JSON.parse(result.choices[0].message?.content || "");
   },
 };
