@@ -4,6 +4,7 @@ import { runReAct } from "./nodes/execute/execute";
 import { planner } from "./nodes/plan/planner";
 import { Plan } from "./nodes/plan/types";
 import { ToolList } from "./tools";
+import simpleResponseTool from "./tools/common/simple_response";
 import { Tool } from "./tools/types";
 
 class Agent {
@@ -29,56 +30,28 @@ class Agent {
       console.log("// Classification end ------------------------");
 
       // 2. 실행
-
-      // 2-2. 만약 complex_spec인 경우, Plan을 작성
-      console.log("// Planning start ------------------------");
-      const plan: Plan = await planner(input);
-      console.log("// Planning end ------------------------");
-
-      let context = "";
-      console.log("// runReAct start ------------------------");
-      for (const task of plan.tasks) {
-        console.log("currentTask: ", JSON.stringify(task));
-        const result = await runReAct({
-          type: classification.type,
-          input,
-          tools: this.tools,
-          plan: plan,
-          currentTask: task,
-          prevContext: context,
-        });
-        context += "\n" + (result.result || "");
-        console.log(result);
-      }
-      console.log("// runReAct end------------------------");
-      console.log("Context: ", context);
-      return context;
-
-      /*
       if (classification.type === "simple_query") {
-        console.log("// runReAct start ------------------------");
-        // 2-1. 만약 simple_query인 경우 바로 실행
-        const result = await runReAct({
-          type: classification.type,
+        // 2-1. 만약 simple_query인 경우, 바로 simple_llm_response 응답
+        console.log("// Simple query start ------------------------");
+        const result = await simpleResponseTool.execute({
           input,
-          goal: input,
-          tools: this.tools,
         });
-        console.log("// runReAct end------------------------");
-        return result.result || "";
+        console.log("result: ", result.response);
+        console.log("// Simple query end------------------------");
+        return result.response || "";
       } else {
         // 2-2. 만약 complex_spec인 경우, Plan을 작성
         console.log("// Planning start ------------------------");
         const plan: Plan = await planner(input);
-        let context = "";
         console.log("// Planning end ------------------------");
 
+        let context = "";
         console.log("// runReAct start ------------------------");
         for (const task of plan.tasks) {
+          console.log("currentTask: ", JSON.stringify(task));
           const result = await runReAct({
             type: classification.type,
             input,
-            goal: plan.goal,
             tools: this.tools,
             plan: plan,
             currentTask: task,
@@ -88,9 +61,9 @@ class Agent {
           console.log(result);
         }
         console.log("// runReAct end------------------------");
+        console.log("Context: ", context);
         return context;
       }
-        */
     } catch (e) {
       console.log(e);
       return "응답할 수 없습니다.";

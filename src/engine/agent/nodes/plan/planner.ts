@@ -1,5 +1,6 @@
 import { zodResponseFormat } from "openai/helpers/zod.js";
 import { chatInput } from "../../../client/client";
+import { TaskState } from "../execute/types";
 import {
   DependeciesSchema,
   Goal,
@@ -9,7 +10,6 @@ import {
   TaskResultSchema,
   TaskSchema,
 } from "./types";
-import { TaskState } from "../execute/types";
 
 async function generateGoal(input: string): Promise<Goal> {
   const prompt = `

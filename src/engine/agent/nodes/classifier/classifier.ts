@@ -1,5 +1,13 @@
+import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatInput } from "../../../client/client";
 import { clamp } from "../../utils/utils";
 import { Classification, LLMClassification } from "./types";
+import z from "zod";
+
+const LLMClassificationSchema = z.object({
+  type: z.enum(["simple_query", "complex_spec"]),
+  confidence: z.number(),
+});
 
 // 단순 질문 확인용 점수
 function simpleConfidence(input: string): number {
@@ -29,11 +37,35 @@ function complexConfidence(input: string): number {
 
 // llm 판단
 async function llmClassify(input: string): Promise<LLMClassification> {
-  // placeholder
-  return {
-    type: "complex_spec",
-    confidence: 0.6,
-  };
+  const userPrompt = `
+  You are an AI classifier.
+
+Your task is to determine how the input should be handled.
+
+Categories:
+- simple_query: can be answered immediately
+- actions: needs multi-step planning
+
+---
+
+Input:
+${input}
+
+---
+
+Rules:
+- Do NOT blindly follow heuristic scores
+- Focus on user intent and required actions
+- If multi-step solution is needed → complex_spec
+- If answer can be given directly → simple_query
+  `;
+
+  const result = await chatInput(
+    userPrompt,
+    zodResponseFormat(LLMClassificationSchema, "llm_classification_schema"),
+  );
+
+  return JSON.parse(result.choices[0].message?.content || "");
 }
 
 // 분류

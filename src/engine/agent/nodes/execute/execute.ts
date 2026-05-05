@@ -1,4 +1,5 @@
 import { Tool, ToolAction } from "../../tools/types";
+import { InputType } from "../classifier/types";
 import { replanFull, replanPartial, replanTask } from "../plan/planner";
 import { Goal, Plan, Task } from "../plan/types";
 import { act } from "./action";
@@ -143,7 +144,7 @@ export const runReAct = async ({
   currentTask,
   prevContext,
 }: {
-  type: "simple_query" | "complex_spec";
+  type: InputType;
   input: string;
   tools: Tool[];
   plan: Plan;
@@ -178,20 +179,7 @@ export const runReAct = async ({
     console.log("// Thought end ------------------------");
 
     if (thought.intent === "finish") {
-      if (type === "simple_query") {
-        // simple_query의 경우 task 반복이 1회이기때문에, finish로 바로 오는 경우가 있다.
-        const tool = tools.filter(
-          (t) => t.definition.name === "simple_llm_response",
-        )[0]?.execute;
-        const response = await tool({
-          input: input,
-        });
-        return {
-          result: response?.response,
-        };
-      } else {
-        return finalize(state);
-      }
+      return finalize(state);
     }
 
     // ------------------------
