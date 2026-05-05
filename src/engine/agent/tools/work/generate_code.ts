@@ -8,7 +8,7 @@ const GenerateCodeSchema = z.object({
   tests: z.string(),
   explanation: z.string(),
   confidence: z.number(),
-  error: z.string().optional(),
+  error: z.string().optional().nullable(),
 });
 
 export type GenerateCodeType = z.infer<z.ZodType<typeof GenerateCodeSchema>>;

@@ -84,6 +84,7 @@ export async function act(
   // ------------------------
   candidates = rankTools(candidates, context);
   candidates = selectTopTools(candidates, 8);
+  console.log(candidates);
 
   // ------------------------
   // 3. LLM에 전달할 Tool 설명 생성
@@ -124,6 +125,8 @@ Rules:
 - Follow the input schema strictly
 - Do NOT hallucinate fields
 - Keep arguments minimal and relevant
+- Do NOT provide empty values for required fields
+- If a required field cannot be filled, do NOT call the tool
 `;
 
   // ------------------------
@@ -143,6 +146,7 @@ Rules:
   const selectedTool = candidates.find(
     (t) => t.definition.name === parsed!.tool,
   );
+  console.log(selectedTool);
 
   if (!selectedTool) {
     return fallbackToolAction(candidates);

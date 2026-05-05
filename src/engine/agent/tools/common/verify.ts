@@ -10,7 +10,7 @@ const VerifySchema = z.object({
   suggestions: z.array(z.string()),
   improved_output: z.string(),
   confidence: z.number(),
-  error: z.string().optional(),
+  error: z.string().optional().nullable(),
 });
 
 export type VerifyType = z.infer<z.ZodType<typeof VerifySchema>>;

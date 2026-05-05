@@ -155,6 +155,7 @@ export const runReAct = async ({
     // ------------------------
     // Think
     // ------------------------
+    console.log("// Thought ------------------------");
     const thought = await think({
       goal: state.goal,
       currentTask: state.currentTask?.description,
@@ -162,7 +163,6 @@ export const runReAct = async ({
       context: state.context,
       maxSteps: MAX_STEPS,
     });
-    console.log("// Thought ------------------------");
     console.log(thought);
     console.log("// ------------------------");
 
@@ -186,28 +186,28 @@ export const runReAct = async ({
     // ------------------------
     // Action
     // ------------------------
-    let action = await act(thought, tools, state.context);
     console.log("// Action ------------------------");
+    let action = await act(thought, tools, state.context);
     console.log(action);
     console.log("// ------------------------");
 
     // ------------------------
     // Tool 실행
     // ------------------------
-    const result = await executeTool(tools, action);
     console.log("// Tool Result ------------------------");
+    const result = await executeTool(tools, action);
     console.log(result);
     console.log("// ------------------------");
 
     // ------------------------
     // Observation
     // ------------------------
+    console.log("// Observation ------------------------");
     const observation = await createObservation({
       tool: action.tool,
       result: result?.choices[0].message.content || "",
       context: state.context,
     });
-    console.log("// Observation ------------------------");
     console.log(observation);
     console.log("// ------------------------");
 

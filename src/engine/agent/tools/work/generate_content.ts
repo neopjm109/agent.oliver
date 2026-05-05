@@ -8,7 +8,7 @@ const GenerateContentSchema = z.object({
   content: z.string(),
   outline: z.array(z.string()),
   confidence: z.number(),
-  error: z.string().optional(),
+  error: z.string().optional().nullable(),
 });
 
 export type GenerateContentType = z.infer<

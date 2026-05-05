@@ -7,7 +7,7 @@ const FormatMarkdownSchema = z.object({
   markdown: z.string(),
   sections: z.array(z.string()),
   confidence: z.number(),
-  error: z.string().optional(),
+  error: z.string().optional().nullable(),
 });
 
 export type FormatMarkdownType = z.infer<
