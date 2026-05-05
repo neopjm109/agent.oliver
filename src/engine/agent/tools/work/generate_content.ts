@@ -1,5 +1,19 @@
+import z from "zod";
 import { chatMessages } from "../../../client/client";
 import { Tool } from "../types";
+import { zodResponseFormat } from "openai/helpers/zod.js";
+
+const GenerateContentSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  outline: z.array(z.string()),
+  confidence: z.number(),
+  error: z.string().optional(),
+});
+
+export type GenerateContentType = z.infer<
+  z.ZodType<typeof GenerateContentSchema>
+>;
 
 export const generateContentTool: Tool = {
   definition: {
@@ -111,31 +125,24 @@ Length:
 ${lengthGuide}
 
 ${constraintText}
-
----
-
-Output format (strict JSON):
-
-{
-  "title": "string",
-  "content": "string",
-  "outline": ["string"]
-}
 `;
 
     try {
       // 🔹 5. LLM 호출
-      const response = await chatMessages([
-        {
-          role: "system",
-          content:
-            "You are a highly skilled content generator. Always respond in valid JSON.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ]);
+      const response = await chatMessages(
+        [
+          {
+            role: "system",
+            content:
+              "You are a highly skilled content generator. Always respond in valid JSON.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        zodResponseFormat(GenerateContentSchema, "generate_content_schema"),
+      );
 
       const text = response.choices[0]?.message?.content || "{}";
 

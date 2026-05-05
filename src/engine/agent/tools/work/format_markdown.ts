@@ -1,5 +1,18 @@
+import z from "zod";
 import { chatMessages } from "../../../client/client";
 import { Tool } from "../types";
+import { zodResponseFormat } from "openai/helpers/zod.js";
+
+const FormatMarkdownSchema = z.object({
+  markdown: z.string(),
+  sections: z.array(z.string()),
+  confidence: z.number(),
+  error: z.string().optional(),
+});
+
+export type FormatMarkdownType = z.infer<
+  z.ZodType<typeof FormatMarkdownSchema>
+>;
 
 export const formatMarkdownTool: Tool = {
   definition: {
@@ -70,31 +83,25 @@ ${tocInstruction}
 
 ---
 
-Return ONLY valid JSON in the following format:
-
-{
-  "markdown": "string",
-  "sections": ["string"]
-}
-
----
-
 [TEXT]
 ${text}
 `;
 
     try {
-      const response = await chatMessages([
-        {
-          role: "system",
-          content:
-            "You are an expert in formatting text into Markdown. Always respond in valid JSON.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ]);
+      const response = await chatMessages(
+        [
+          {
+            role: "system",
+            content:
+              "You are an expert in formatting text into Markdown. Always respond in valid JSON.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        zodResponseFormat(FormatMarkdownSchema, "format_markdown_schema"),
+      );
 
       const raw = response.choices[0]?.message?.content || "{}";
 

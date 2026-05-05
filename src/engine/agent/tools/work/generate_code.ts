@@ -1,5 +1,17 @@
+import z from "zod";
 import { chatMessages } from "../../../client/client";
 import { Tool } from "../types";
+import { zodResponseFormat } from "openai/helpers/zod.js";
+
+const GenerateCodeSchema = z.object({
+  code: z.string(),
+  tests: z.string(),
+  explanation: z.string(),
+  confidence: z.number(),
+  error: z.string().optional(),
+});
+
+export type GenerateCodeType = z.infer<z.ZodType<typeof GenerateCodeSchema>>;
 
 export const generateCodeTool: Tool = {
   definition: {
@@ -83,30 +95,23 @@ Instructions:
 - Use appropriate naming and structure.
 ${testInstruction}
 ${explanationInstruction}
-
----
-
-Return ONLY valid JSON in the following format:
-
-{
-  "code": "string",
-  "tests": "string",
-  "explanation": "string"
-}
 `;
 
     try {
-      const response = await chatMessages([
-        {
-          role: "system",
-          content:
-            "You are a highly skilled software engineer. Always respond in valid JSON.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ]);
+      const response = await chatMessages(
+        [
+          {
+            role: "system",
+            content:
+              "You are a highly skilled software engineer. Always respond in valid JSON.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        zodResponseFormat(GenerateCodeSchema, "generate_code_schema"),
+      );
 
       const text = response.choices[0]?.message?.content || "{}";
 

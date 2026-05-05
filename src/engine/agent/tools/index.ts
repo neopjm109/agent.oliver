@@ -3,6 +3,7 @@ import { searchWebTool } from "./common/search_web";
 import simpleResponseTool from "./common/simple_response";
 import { summarizeTool } from "./common/summarize";
 import { translateTool } from "./common/translate";
+import { verifyOutputTool } from "./common/verify";
 import { listFilesTool } from "./file/list";
 import { moveFileTool } from "./file/move";
 import { patchFileTool } from "./file/patch";
@@ -17,6 +18,7 @@ import { runCommandTool } from "./work/run_command";
 
 export const ToolList = [
   simpleResponseTool,
+  verifyOutputTool,
   listFilesTool,
   readFileTool,
   writeFileTool,
