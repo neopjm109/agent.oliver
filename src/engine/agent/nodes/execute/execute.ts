@@ -241,7 +241,7 @@ export const runReAct = async ({
       completeness: observation.signals.completeness,
       stepCount: stepCount,
     });
-    console.log(decision);
+    console.log("decision: ", decision);
 
     // ------------------------
     // Decision 처리
@@ -252,6 +252,7 @@ export const runReAct = async ({
 
     if (decision === "replan") {
       const strategy = chooseReplanStrategy(state);
+      console.log("strategy: ", strategy);
 
       if (strategy === "task") {
         currentTask = await replanTask(state);
