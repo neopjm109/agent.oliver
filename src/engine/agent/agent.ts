@@ -23,7 +23,9 @@ class Agent {
       console.log("input", input);
       // 1. Classifier로 단일 쿼리인지, 복잡 쿼리인지 확인
       const classification: Classification = await classify(input);
+      console.log("// Classification ------------------------");
       console.log(classification);
+      console.log("// ------------------------");
 
       // 2. 실행
       if (classification.type === "simple_query") {
@@ -34,7 +36,9 @@ class Agent {
           goal: input,
           tools: this.tools,
         });
+        console.log("// runReAct Result ------------------------");
         console.log(result);
+        console.log("// ------------------------");
         return result.result || "";
       } else {
         // 2-2. 만약 complex_spec인 경우, Plan을 작성

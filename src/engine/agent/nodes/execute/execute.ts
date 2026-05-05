@@ -139,6 +139,7 @@ export const runReAct = async ({
   currentTask?: Task;
   prevContext?: string;
 }) => {
+  console.log(input);
   let stepCount = 0;
   let state: TaskState = {
     goal: typeof goal === "string" ? goal : JSON.stringify(goal),
@@ -161,6 +162,9 @@ export const runReAct = async ({
       context: state.context,
       maxSteps: MAX_STEPS,
     });
+    console.log("// Thought ------------------------");
+    console.log(thought);
+    console.log("// ------------------------");
 
     if (thought.intent === "finish") {
       if (type === "simple_query") {
@@ -183,20 +187,29 @@ export const runReAct = async ({
     // Action
     // ------------------------
     let action = await act(thought, tools, state.context);
+    console.log("// Action ------------------------");
+    console.log(action);
+    console.log("// ------------------------");
 
     // ------------------------
     // Tool 실행
     // ------------------------
     const result = await executeTool(tools, action);
+    console.log("// Tool Result ------------------------");
+    console.log(result);
+    console.log("// ------------------------");
 
     // ------------------------
     // Observation
     // ------------------------
     const observation = await createObservation({
       tool: action.tool,
-      result,
+      result: result?.choices[0].message.content || "",
       context: state.context,
     });
+    console.log("// Observation ------------------------");
+    console.log(observation);
+    console.log("// ------------------------");
 
     // ------------------------
     // History 업데이트

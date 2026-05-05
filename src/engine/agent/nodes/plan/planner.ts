@@ -180,8 +180,8 @@ Goal:
 ${goal}
 
 Failed Task:
-Name: ${currentTask!!.name}
-Description: ${currentTask!!.description}
+Name: ${currentTask?.name || "N/A"}
+Description: ${currentTask?.description || "N/A"}
 
 Recent Execution History:
 ${failureSummary}
