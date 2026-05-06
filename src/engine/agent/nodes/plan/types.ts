@@ -7,6 +7,7 @@ export type Task = {
   dependencies: string[];
   status: "pending" | "in_progress" | "done";
   outputs?: any;
+  subtasks?: Task[];
 };
 
 export const TaskSchema: z.ZodType<Task> = z.object({

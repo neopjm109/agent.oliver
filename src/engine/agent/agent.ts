@@ -2,7 +2,7 @@ import { classify } from "./nodes/classifier/classifier";
 import { Classification } from "./nodes/classifier/types";
 import { runReAct, runTool } from "./nodes/execute/execute";
 import { planner } from "./nodes/plan/planner";
-import { Plan } from "./nodes/plan/types";
+import { Plan, Task } from "./nodes/plan/types";
 import { ToolList } from "./tools";
 import { Tool } from "./tools/types";
 
@@ -55,8 +55,9 @@ class Agent {
       console.log("// Planning end ------------------------");
 
       let context = "";
+      const tasks = flattenTasks(plan.tasks);
       console.log("// runReAct start ------------------------");
-      for (const task of plan.tasks) {
+      for (const task of tasks) {
         console.log("currentTask: ", JSON.stringify(task));
         const result = await runReAct({
           input,
@@ -76,6 +77,26 @@ class Agent {
       return "응답할 수 없습니다.";
     }
   }
+}
+
+function flattenTasks(tasks: Task[]): Task[] {
+  const result: Task[] = [];
+
+  function walk(task: Task) {
+    if (task.subtasks && task.subtasks.length > 0) {
+      for (const sub of task.subtasks) {
+        walk(sub);
+      }
+    } else {
+      result.push(task);
+    }
+  }
+
+  for (const t of tasks) {
+    walk(t);
+  }
+
+  return result;
 }
 
 export default Agent;

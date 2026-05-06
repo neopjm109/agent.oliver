@@ -48,10 +48,25 @@ Rules:
 - Avoid overly large tasks that combine multiple concerns
 - Tasks should be logically ordered
 - Typical range is 2~10 tasks, but may exceed if necessary
+
+Subtask Rules:
+- Use subtasks ONLY when a task is too large or contains multiple logical steps
+- Subtasks must also be independently executable
+- Maximum depth is 2 (Task → Subtask only, no deeper nesting)
+- Avoid unnecessary nesting
+- If a task can be executed in one step, DO NOT create subtasks
+- Each subtask should represent a meaningful unit of work (e.g., one tool execution)
+
+Execution Semantics:
+- Only leaf tasks (tasks without subtasks) will be executed
+- Parent tasks are for grouping and structure only
+
+Save Rules:
 - Include a "save_file" task ONLY if:
   - The user explicitly asks for saving, OR
   - The output is large or reusable
 - Do NOT include save_file for small or temporary outputs
+- If included, "save_file" must be the final task (or final subtask in its group)
 `;
 
   const res: any = await chatInput(
