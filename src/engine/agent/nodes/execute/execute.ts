@@ -1,8 +1,8 @@
 import { Tool, ToolAction } from "../../tools/types";
-import { InputType } from "../classifier/types";
+import { QueryType } from "../classifier/types";
 import { replanFull, replanPartial, replanTask } from "../plan/planner";
 import { Goal, Plan, Task } from "../plan/types";
-import { act } from "./action";
+import { act, actTool } from "./action";
 import { finalize } from "./finalize";
 import { createObservation } from "./observation";
 import { think } from "./think";
@@ -136,15 +136,65 @@ function chooseReplanStrategy(state: TaskState): "task" | "partial" | "full" {
   return "task";
 }
 
-export const runReAct = async ({
+export const runTool = async ({
   type,
+  goal,
+  tool,
+  input,
+}: {
+  type: QueryType;
+  goal: Goal;
+  input: string;
+  tool: Tool;
+}) => {
+  // 단순 Tool 호출을 위한 것이므로 think는 생략한다.
+  const currentTask: Task = {
+    id: "",
+    name: type,
+    description: input,
+    dependencies: [],
+    status: "pending",
+  };
+
+  // ------------------------
+  // Action
+  // ------------------------
+  console.log("// Action start------------------------");
+  const action: ToolAction = await actTool(currentTask, tool, "");
+  console.log("tool name: ", action.tool);
+  console.log("tool args: ", JSON.stringify(action.args));
+  console.log("// Action end------------------------");
+
+  // ------------------------
+  // Tool 실행
+  // ------------------------
+  console.log("// Tool start ------------------------");
+  const result = await executeTool([tool], action);
+  console.log("tool result: ", JSON.stringify(result || "N/A"));
+  console.log("// Tool end ------------------------");
+
+  if (type === "direct_answer") {
+    return {
+      goal: goal,
+      steps: [],
+      result: result.response,
+    };
+  }
+
+  return {
+    goal: goal,
+    steps: [],
+    result: result,
+  };
+};
+
+export const runReAct = async ({
   input,
   plan,
   tools,
   currentTask,
   prevContext,
 }: {
-  type: InputType;
   input: string;
   tools: Tool[];
   plan: Plan;

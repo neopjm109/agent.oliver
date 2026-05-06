@@ -69,14 +69,14 @@ Do not include any extra text outside the JSON.
 Translate the following text.
 
 [TEXT]
-{text}
+${text}
 
 [TARGET LANGUAGE]
-{target_language}
+${target}
 
 [OPTIONS]
-- mode: {mode} (simple | explain)
-- tone: {tone} (neutral | formal | casual)
+- mode: ${mode} (simple | explain)
+- tone: ${tone} (neutral | formal | casual)
 
 ---
 

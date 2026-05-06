@@ -37,8 +37,8 @@ function selectTopTools(tools: Tool[], limit = 8): Tool[] {
 // Schema Validation
 // ------------------------
 
-function validateArgs(schema: Record<string, string>, args: any): boolean {
-  for (const key of Object.keys(schema)) {
+function validateArgs(required: string[], args: any): boolean {
+  for (const key of required) {
     if (!(key in args)) return false;
   }
   return true;
@@ -160,7 +160,7 @@ Rules:
   // ------------------------
   if (
     !validateArgs(
-      selectedTool.definition.parameters?.properties ?? {},
+      selectedTool.definition.parameters?.required ?? [],
       parsed!.args,
     )
   ) {
@@ -169,6 +169,78 @@ Rules:
 
   // ------------------------
   // 8. 정상 반환
+  // ------------------------
+  return parsed!;
+}
+
+export async function actTool(
+  currentTask: Task,
+  tool: Tool,
+  context: string,
+): Promise<ToolAction> {
+  // ------------------------
+  // 1. LLM에 전달할 Tool 설명 생성
+  // ------------------------
+  const toolDescriptions = [tool]
+    .map(
+      (t) => `
+Tool: ${t.definition.name}
+Description: ${t.definition.description}
+Input Schema: ${JSON.stringify(t.definition.parameters?.properties ?? {})}
+`,
+    )
+    .join("\n");
+
+  // ------------------------
+  // 2. Prompt 구성
+  // ------------------------
+  const prompt = `
+You are an AI agent.
+
+currentTaks:
+${currentTask.description}
+
+Context:
+${truncate(context)}
+
+Available Tools:
+${toolDescriptions}
+
+---
+
+Select the BEST tool and generate arguments.
+
+Rules:
+- Use ONLY one tool
+- Follow the input schema strictly
+- Do NOT hallucinate fields
+- Keep arguments minimal and relevant
+- Do NOT provide empty values for required fields
+- If a required field cannot be filled, do NOT call the tool
+`;
+
+  // ------------------------
+  // 3. LLM 호출
+  // ------------------------
+
+  const res: any = await chatInput(
+    prompt,
+    zodResponseFormat(ToolActionSchema, "tool_action_schema"),
+  );
+
+  const parsed = JSON.parse(res.choices[0].message.content);
+  console.log(res);
+  console.log(parsed);
+
+  // ------------------------
+  // 4. args 검증
+  // ------------------------
+  if (!validateArgs(tool.definition.parameters?.required ?? [], parsed!.args)) {
+    return fallbackToolAction([tool]);
+  }
+
+  // ------------------------
+  // 5. 정상 반환
   // ------------------------
   return parsed!;
 }

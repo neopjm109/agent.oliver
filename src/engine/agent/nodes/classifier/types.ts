@@ -1,16 +1,20 @@
 export type InputType = "simple_query" | "complex_spec";
 
-export type Classification = {
-  type: InputType;
+export type QueryType =
+  | "direct_answer"
+  | "light_reasoning"
+  | "requires_planning";
+
+export interface Classification {
+  type: QueryType;
   confidence: number;
-  scores: {
-    simple: number;
-    complex: number;
-  };
-  reason?: string;
-};
+  reason: string;
+  suggestedTool?: string;
+  scores?: Record<string, number>;
+}
 
 export type LLMClassification = {
-  type: InputType;
+  type: QueryType;
   confidence: number;
+  reason: string;
 };
