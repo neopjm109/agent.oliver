@@ -48,6 +48,10 @@ Rules:
 - Avoid overly large tasks that combine multiple concerns
 - Tasks should be logically ordered
 - Typical range is 2~10 tasks, but may exceed if necessary
+- Include a "save_file" task ONLY if:
+  - The user explicitly asks for saving, OR
+  - The output is large or reusable
+- Do NOT include save_file for small or temporary outputs
 `;
 
   const res: any = await chatInput(
