@@ -33,11 +33,10 @@ class Agent {
         classification.type === "direct_answer" ||
         classification.type === "light_reasoning"
       ) {
-        console.log(classification.suggestedTool);
+        // 단답형이나 Tool만 실행하는 경우
+        const toolName = classification.suggestedTool || "simple_llm_response";
         const tool: Tool = this.tools.filter(
-          (t) =>
-            t.definition.name ===
-            (classification.suggestedTool || "simple_response"),
+          (t) => t.definition.name === toolName,
         )[0];
         const result = await runTool({
           type: classification.type,

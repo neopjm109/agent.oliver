@@ -136,6 +136,7 @@ function chooseReplanStrategy(state: TaskState): "task" | "partial" | "full" {
   return "task";
 }
 
+// Tool 하나만을 실행
 export const runTool = async ({
   type,
   goal,
@@ -173,18 +174,10 @@ export const runTool = async ({
   console.log("tool result: ", JSON.stringify(result || "N/A"));
   console.log("// Tool end ------------------------");
 
-  if (type === "direct_answer") {
-    return {
-      goal: goal,
-      steps: [],
-      result: result.response,
-    };
-  }
-
   return {
     goal: goal,
     steps: [],
-    result: result,
+    result: result.response || result, // response가 있는 경우, 바로 답
   };
 };
 
