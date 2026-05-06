@@ -82,6 +82,7 @@ Rules:
 - Be concise (1 sentence)
 - Do NOT repeat previous actions
 - Focus only on the NEXT step
+- Do NOT use "analyze" if a concrete output can be generated
 - Avoid vague reasoning
 `;
 
