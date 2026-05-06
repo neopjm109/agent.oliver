@@ -20,7 +20,7 @@ export const formatMarkdownTool: Tool = {
     description:
       "Formats raw text into clean, structured, and readable Markdown.",
 
-    intents: ["generate"],
+    intents: ["format"],
 
     tags: ["markdown", "formatting", "documentation"],
 

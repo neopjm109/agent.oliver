@@ -70,11 +70,13 @@ ${truncate(context)}
 Decide the NEXT best action.
 
 Choose EXACTLY ONE intent from:
-- search → need external information
-- analyze → reason over current data
-- compute → perform calculation or transformation
-- verify → check correctness or consistency
-- finish → task is complete
+- search → retrieve external data
+- generate → write documents, articles, reports,  create code
+- format → structure or clean content
+- analyze → understand or break down problems
+- compute → perform calculations
+- verify → validate results
+- finish → return final answer
 
 Rules:
 - Be concise (1 sentence)
@@ -114,6 +116,7 @@ Rules:
     "analyze",
     "compute",
     "generate",
+    "format",
     "execute",
     "verify",
     "finish",

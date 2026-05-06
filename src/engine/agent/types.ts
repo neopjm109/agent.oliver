@@ -13,6 +13,7 @@ export const IntentSchema = z.enum([
   "analyze",
   "compute",
   "generate",
+  "format",
   "execute",
   "verify",
   "finish",
