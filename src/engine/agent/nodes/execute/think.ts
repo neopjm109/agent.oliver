@@ -113,6 +113,8 @@ Rules:
     "search",
     "analyze",
     "compute",
+    "generate",
+    "execute",
     "verify",
     "finish",
   ];
