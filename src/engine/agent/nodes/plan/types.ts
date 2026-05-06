@@ -7,7 +7,7 @@ export type Task = {
   dependencies: string[];
   status: "pending" | "in_progress" | "done";
   outputs?: any;
-  subtasks?: Task[];
+  subtasks?: any[];
 };
 
 export const TaskSchema: z.ZodType<Task> = z.object({
@@ -16,6 +16,19 @@ export const TaskSchema: z.ZodType<Task> = z.object({
   description: z.string(),
   dependencies: z.array(z.string()),
   status: z.enum(["pending", "in_progress", "done"]),
+  output: z.string().optional().nullable(),
+  subtasks: z.array(
+    z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        description: z.string(),
+        dependencies: z.array(z.string()),
+        status: z.enum(["pending", "in_progress", "done"]),
+        output: z.string().optional().nullable(),
+      })
+      .nullable(),
+  ),
 });
 
 export const TaskResultSchema = z.object({

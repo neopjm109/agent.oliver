@@ -76,6 +76,23 @@ Save Rules:
   return JSON.parse(res.choices[0].message.content)?.tasks || [];
 }
 
+function flattenTasks(tasks: Task[]): Task[] {
+  const result: any[] = [];
+
+  for (const t of tasks) {
+    result.push({
+      ...t,
+      subtasks: undefined, // 제거
+    });
+
+    if (t.subtasks) {
+      result.push(...flattenTasks(t.subtasks));
+    }
+  }
+
+  return result;
+}
+
 async function generateDependencies(tasks: Task[]): Promise<Task[]> {
   const prompt = `
 Analyze task dependencies.
@@ -158,11 +175,13 @@ export async function planner(input: string): Promise<Plan> {
 
   // 2. Task 생성
   const tasks = await generateTasks(goal, input);
+  const flatten = flattenTasks(tasks);
   console.log(`tasks: ${JSON.stringify(tasks)}`);
+  console.log(`flatten: ${JSON.stringify(flatten)}`);
 
   // 3. Dependency 생성
-  const tasksWithDeps = await generateDependencies(tasks);
-  console.log(`tasksWithDeps: ${JSON.stringify(tasksWithDeps)}`);
+  const tasksWithDeps = await generateDependencies(flatten);
+  console.log(`task: ${JSON.stringify(tasksWithDeps)}`);
 
   // 4. 검증
   validatePlan(tasksWithDeps);
