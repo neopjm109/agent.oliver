@@ -1,5 +1,8 @@
 import * as z from "zod";
 import { Tool } from "../types";
+import { ROOT_DIR, safePath } from "../../utils/paths";
+import { readdir, stat } from "fs/promises";
+import { join, relative } from "path";
 
 export const ListFilesSchema = z.object({
   pathname: z.string().describe("보여줄 파일리스트 경로"),
@@ -30,5 +33,23 @@ export const listFilesTool: Tool = {
       required: ["pathname"],
     },
   },
-  execute: async (args: ListFilesType) => {},
+  execute: async (args: ListFilesType) => {
+    try {
+      const dir = safePath(args.pathname || ".");
+      const entries = await readdir(dir);
+      const details = await Promise.all(
+        entries.map(async (name) => {
+          const abs = join(dir, name);
+          const info = await stat(abs).catch(() => null);
+          const type = info?.isDirectory() ? "dir" : "file";
+          // ROOT 기준 상대경로로 표시 — read_file에 그대로 사용 가능
+          const relPath = relative(ROOT_DIR, abs);
+          return { name: relPath, type: type };
+        }),
+      );
+      return JSON.stringify(details);
+    } catch (err: unknown) {
+      return (err as Error).message;
+    }
+  },
 };

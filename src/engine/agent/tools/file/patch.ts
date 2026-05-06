@@ -1,5 +1,7 @@
 import * as z from "zod";
 import { Tool } from "../types";
+import { safePath } from "../../utils/paths";
+import { readFile, writeFile } from "fs/promises";
 
 export const PatchFilesSchema = z.object({
   pathname: z
@@ -41,5 +43,29 @@ export const patchFileTool: Tool = {
       required: ["path", "search", "replace"],
     },
   },
-  execute: async (args: PatchFileType) => {},
+  execute: async (args: PatchFileType) => {
+    const { pathname, search, replace } = args;
+    if (!pathname || search === undefined || replace === undefined) {
+      return {
+        status: "failed",
+        reason: "Missing required parameters: pathname, search, replace",
+      };
+    }
+
+    try {
+      const abs = safePath(pathname);
+      const content = await readFile(abs, "utf-8");
+
+      if (!content.includes(search)) {
+        return "Error: The search string was not found in the file. Make sure the search string matches exactly (including indentation).";
+      }
+
+      const newContent = content.replace(search, replace);
+      await writeFile(abs, newContent, "utf-8");
+
+      return `Successfully patched ${pathname}`;
+    } catch (err: unknown) {
+      return (err as Error).message;
+    }
+  },
 };

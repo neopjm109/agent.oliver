@@ -1,5 +1,7 @@
 import * as z from "zod";
 import { Tool } from "../types";
+import { safePath } from "../../utils/paths";
+import { readFile } from "fs/promises";
 
 export const ReadFilesSchema = z.object({
   pathname: z
@@ -29,5 +31,24 @@ export const readFileTool: Tool = {
       required: ["pathname"],
     },
   },
-  execute: async (args: ReadFileType) => {},
+  execute: async (args: ReadFileType) => {
+    const { pathname } = args;
+    if (!pathname)
+      return {
+        status: "failed",
+        reason: "Error: 'pathname' parameter is required",
+      };
+
+    try {
+      const abs = safePath(pathname);
+      const content = await readFile(abs, "utf-8");
+
+      return {
+        pathname: args.pathname,
+        content: content, // 원문
+      };
+    } catch (err: unknown) {
+      return (err as Error).message;
+    }
+  },
 };
