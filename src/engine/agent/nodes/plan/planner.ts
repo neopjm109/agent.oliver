@@ -42,9 +42,12 @@ Break the goal into executable tasks.
 
 Rules:
 - Each task must be independently executable
-- Each task must have a clear output
-- Keep tasks between 3~7
-- Avoid overlap
+- Each task must produce a clear output
+- Use the MINIMUM number of tasks required
+- Avoid unnecessary splitting
+- Avoid overly large tasks that combine multiple concerns
+- Tasks should be logically ordered
+- Typical range is 2~10 tasks, but may exceed if necessary
 `;
 
   const res: any = await chatInput(
