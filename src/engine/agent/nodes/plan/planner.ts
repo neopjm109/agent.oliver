@@ -40,33 +40,60 @@ ${input.slice(0, 2000)}
 
 Break the goal into executable tasks.
 
-Rules:
+Goal:
+- Focus on executable workflow steps
+- Prefer action-oriented tasks over analysis
+- Tasks should directly contribute to producing the final output
+
+Task Rules:
 - Each task must be independently executable
-- Each task must produce a clear output
+- Each task must produce a clear and concrete output
 - Use the MINIMUM number of tasks required
 - Avoid unnecessary splitting
-- Avoid overly large tasks that combine multiple concerns
+- Avoid overly broad tasks that combine unrelated concerns
 - Tasks should be logically ordered
+- Prefer executable actions (generate, filesystem, verify, search, format) over abstract analysis
+- Use "analyze" ONLY if execution is blocked by ambiguity or missing information
 - Typical range is 2~10 tasks, but may exceed if necessary
 
-Subtask Rules:
-- Use subtasks ONLY when a task is too large or contains multiple logical steps
-- Subtasks must also be independently executable
-- Maximum depth is 2 (Task → Subtask only, no deeper nesting)
-- Avoid unnecessary nesting
-- If a task can be executed in one step, DO NOT create subtasks
-- Each subtask should represent a meaningful unit of work (e.g., one tool execution)
+Execution-Oriented Rules:
+- Prefer implementation tasks when the requirements are already clear
+- If code/content/files can already be generated, create executable tasks immediately
+- Avoid repeated analysis tasks after requirements are understood
+- Prefer tasks representing concrete executable outcomes
+- A task may internally involve multiple actions/tools
+- Tasks should represent meaningful workflow milestones
 
-Execution Semantics:
-- Only leaf tasks (tasks without subtasks) will be executed
-- Parent tasks are for grouping and structure only
+Dependency Rules:
+- Tasks may depend on outputs from previous tasks
+- Use dependencies only when execution order is required
+- Prefer linear execution unless parallelism is clearly beneficial
+- File writing tasks should generally occur after content/code generation
+- Verification tasks should occur after implementation tasks
 
 Save Rules:
 - Include a "save_file" task ONLY if:
-  - The user explicitly asks for saving, OR
-  - The output is large or reusable
-- Do NOT include save_file for small or temporary outputs
-- If included, "save_file" must be the final task (or final subtask in its group)
+  - The user explicitly requests saving, OR
+  - The output is large, reusable, or project-related
+- Do NOT include save_file for temporary or trivial outputs
+- save_file should generally be the final task
+
+Output Quality Rules:
+- Tasks should be concise and action-oriented
+- Avoid vague task names like:
+  - "Analyze the problem"
+  - "Think about implementation"
+- Prefer concrete task names like:
+  - "Generate calculator HTML layout"
+  - "Implement arithmetic evaluation logic"
+  - "Write generated code to project files"
+
+Important:
+- Focus on execution, not discussion
+- Prefer generating outputs over describing them
+- The workflow should be immediately executable by an AI agent
+- Do NOT create subtasks
+- Keep the structure flat and execution-oriented
 `;
 
   const res: any = await chatInput(
@@ -74,23 +101,6 @@ Save Rules:
     zodResponseFormat(TaskResultSchema, "task_result_schema"),
   );
   return JSON.parse(res.choices[0].message.content)?.tasks || [];
-}
-
-function flattenTasks(tasks: Task[]): Task[] {
-  const result: any[] = [];
-
-  for (const t of tasks) {
-    result.push({
-      ...t,
-      subtasks: undefined, // 제거
-    });
-
-    if (t.subtasks) {
-      result.push(...flattenTasks(t.subtasks));
-    }
-  }
-
-  return result;
 }
 
 async function generateDependencies(tasks: Task[]): Promise<Task[]> {
@@ -175,13 +185,10 @@ export async function planner(input: string): Promise<Plan> {
 
   // 2. Task 생성
   const tasks = await generateTasks(goal, input);
-  const flatten = flattenTasks(tasks);
-  console.log(`tasks: ${JSON.stringify(tasks)}`);
-  console.log(`flatten: ${JSON.stringify(flatten)}`);
 
   // 3. Dependency 생성
-  const tasksWithDeps = await generateDependencies(flatten);
-  console.log(`task: ${JSON.stringify(tasksWithDeps)}`);
+  const tasksWithDeps = await generateDependencies(tasks);
+  console.log(`tasks: ${JSON.stringify(tasksWithDeps)}`);
 
   // 4. 검증
   validatePlan(tasksWithDeps);
