@@ -1,4 +1,4 @@
-import { ActionExecutor, ToolRouter } from "./3.executor";
+import { ActionExecutor, ToolExecutor } from "./3.executor";
 import { ActionGraph, ActionNode } from "./types";
 
 export class Scheduler {
@@ -8,10 +8,10 @@ export class Scheduler {
 
   constructor(
     private graph: ActionGraph,
-    private toolRouter: ToolRouter,
+    private toolExecutor: ToolExecutor,
     private maxRetry = 2,
   ) {
-    this.actionExecutor = new ActionExecutor(this.toolRouter);
+    this.actionExecutor = new ActionExecutor(this.graph, this.toolExecutor);
     this.buildIndex();
   }
 
@@ -40,7 +40,7 @@ export class Scheduler {
 
     return deps.every((depId) => {
       const depNode = this.graph.nodes.get(depId);
-      return depNode?.status === "success";
+      return depNode?.status === "completed";
     });
   }
 
@@ -68,7 +68,8 @@ export class Scheduler {
     try {
       const result = await this.actionExecutor.execute(node);
       node.output = result;
-      node.status = "success";
+      node.status = "completed";
+      console.log(result);
     } catch (err: any) {
       node.retryCount = (node.retryCount || 0) + 1;
       node.error = err?.message ?? String(err);
@@ -87,6 +88,7 @@ export class Scheduler {
   async run(): Promise<ActionGraph> {
     while (true) {
       const runnable = this.getRunnableNodes();
+      console.log("runnable", runnable);
 
       // 종료 조건
       if (runnable.length === 0) {

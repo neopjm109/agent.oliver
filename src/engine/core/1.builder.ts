@@ -29,13 +29,10 @@ export class GraphBuilder {
 
     return graph;
   }
+  
   private resolveInput(node: ActionNode, input: any) {
-    if (node.id === "search") {
-      return input.query;
-    }
-
-    if (node.id === "execute") {
-      return input.code;
+    if (node.id === "respond") {
+      return { input };
     }
 
     return input;

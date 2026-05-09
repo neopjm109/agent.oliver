@@ -1,9 +1,21 @@
 import z from "zod";
-import { chatMessages } from "../../../client/client";
-import { Tool } from "../types";
 import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatMessages } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const GenerateContentSchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const GenerateContentSchema = z.object({
   title: z.string(),
   content: z.string(),
   outline: z.array(z.string()),
@@ -11,168 +23,389 @@ const GenerateContentSchema = z.object({
   error: z.string().optional().nullable(),
 });
 
-export type GenerateContentType = z.infer<
-  z.ZodType<typeof GenerateContentSchema>
+export type GenerateContentData = z.infer<
+  typeof GenerateContentSchema
 >;
 
-export const generateContentTool: Tool = {
-  definition: {
-    name: "generate_content",
-    description:
-      "Generates various types of written content such as documents, reports, articles, and novels based on a given topic and options.",
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
 
-    intents: ["generate"],
+export const generateContentName =
+  "generateContentTool";
 
-    tags: ["content", "writing", "text-generation"],
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
 
-    parameters: {
-      type: "object",
-      properties: {
-        type: {
-          type: "string",
-          enum: ["document", "report", "article", "novel"],
+export const generateContentTool: Tool<GenerateContentData> =
+  {
+    definition: {
+      name: generateContentName,
+      description:
+        "Generates structured written content such as documents, reports, articles, and creative writing.",
+      category: ToolCategory.LLM,
+      capabilities: [
+        "content_generation",
+        "document_writing",
+        "article_generation",
+        "creative_writing",
+        "structured_text_generation",
+      ],
+      sideEffects: [SideEffect.NETWORK_CALL],
+      retryable: true,
+      timeoutMs: 60_000,
+      version: "1.0.0",
+      tags: [
+        "content",
+        "writing",
+        "generation",
+        "document",
+        "article",
+        "llm",
+      ],
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: [
+              "document",
+              "report",
+              "article",
+              "novel",
+            ],
+            description:
+              "Type of content to generate.",
+          },
+          topic: {
+            type: "string",
+            description:
+              "Main subject or topic of the content.",
+          },
+          tone: {
+            type: "string",
+            enum: [
+              "neutral",
+              "formal",
+              "casual",
+              "storytelling",
+            ],
+            description:
+              "Writing tone and style.",
+          },
+          audience: {
+            type: "string",
+            description:
+              "Target audience for the generated content.",
+          },
+          length: {
+            type: "string",
+            enum: [
+              "short",
+              "medium",
+              "long",
+            ],
+            description:
+              "Desired output length.",
+          },
+          language: {
+            type: "string",
+            description:
+              "Output language.",
+          },
+          constraints: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description:
+              "Optional content constraints or requirements.",
+          },
         },
-        topic: {
-          type: "string",
-          description: "Main topic or subject of the content.",
-        },
-        tone: {
-          type: "string",
-          enum: ["neutral", "formal", "casual", "storytelling"],
-        },
-        audience: {
-          type: "string",
-          description: "Target audience (optional).",
-        },
-        length: {
-          type: "string",
-          enum: ["short", "medium", "long"],
-        },
-        language: {
-          type: "string",
-          description: "Output language.",
-        },
-        constraints: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional constraints or requirements.",
-        },
+        required: ["type", "topic"],
       },
-      required: ["type", "topic"],
+      outputSchema: {
+        type: "object",
+      },
     },
-  },
 
-  execute: async (args: any) => {
-    const {
-      type,
-      topic,
-      tone = "neutral",
-      audience,
-      length = "medium",
-      language = "English",
-      constraints = [],
-    } = args;
+    async execute(
+      context: ToolExecutionContext,
+    ): Promise<
+      ToolResult<GenerateContentData>
+    > {
+      try {
+        /**
+         * ------------------------------------------------------
+         * Extract Input
+         * ------------------------------------------------------
+         */
 
-    // 🔹 1. type별 Prompt 분기
-    const typeInstructionMap: Record<string, string> = {
-      document: "Write a well-structured document with clear sections.",
-      report:
-        "Write a formal report including summary, analysis, and conclusion.",
-      article:
-        "Write an engaging and readable article suitable for a blog or publication.",
-      novel:
-        "Write a creative and immersive narrative with storytelling elements.",
-    };
+        const nodeInput =
+          context.node.input || {};
+        const type = nodeInput.type;
+        const topic = nodeInput.topic;
+        const tone =
+          nodeInput.tone || "neutral";
+        const audience =
+          nodeInput.audience ||
+          "General audience";
+        const length =
+          nodeInput.length || "medium";
+        const language =
+          nodeInput.language ||
+          "English";
+        const constraints =
+          nodeInput.constraints || [];
 
-    const typeInstruction =
-      typeInstructionMap[type] || "Write high-quality structured content.";
+        if (!type) {
+          return {
+            success: false,
+            error:
+              "Missing required input: type",
+            metadata: {
+              tool: generateContentName,
+            },
+          };
+        }
 
-    // 🔹 2. length 가이드
-    const lengthGuideMap: Record<string, string> = {
-      short: "Keep it concise.",
-      medium: "Provide moderate detail.",
-      long: "Provide detailed and comprehensive content.",
-    };
+        if (!topic) {
+          return {
+            success: false,
+            error:
+              "Missing required input: topic",
+            metadata: {
+              tool: generateContentName,
+            },
+          };
+        }
 
-    const lengthGuide = lengthGuideMap[length] || "";
+        /**
+         * ------------------------------------------------------
+         * Type Instructions
+         * ------------------------------------------------------
+         */
 
-    // 🔹 3. constraints 문자열화
-    const constraintText =
-      constraints.length > 0
-        ? `Constraints:\n- ${constraints.join("\n- ")}`
-        : "";
+        const typeInstructionMap: Record<
+          string,
+          string
+        > = {
+          document:
+            "Write a well-structured document with clear sections and logical organization.",
 
-    // 🔹 4. Prompt 구성
-    const prompt = `
-You are a professional writer.
+          report:
+            "Write a professional report including introduction, analysis, findings, and conclusion.",
 
-Task:
-${typeInstruction}
+          article:
+            "Write an engaging and informative article suitable for publication or blogging.",
 
-Topic:
+          novel:
+            "Write immersive narrative content with storytelling, pacing, and descriptive writing.",
+        };
+
+        const typeInstruction =
+          typeInstructionMap[type] ||
+          "Write high-quality structured content.";
+
+        /**
+         * ------------------------------------------------------
+         * Length Instructions
+         * ------------------------------------------------------
+         */
+
+        const lengthGuideMap: Record<
+          string,
+          string
+        > = {
+          short:
+            "Keep the content concise and compact.",
+
+          medium:
+            "Provide balanced detail and readability.",
+
+          long:
+            "Provide comprehensive, detailed, and in-depth content.",
+        };
+
+        const lengthGuide =
+          lengthGuideMap[length] ||
+          lengthGuideMap.medium;
+
+        /**
+         * ------------------------------------------------------
+         * Constraints
+         * ------------------------------------------------------
+         */
+
+        const constraintText =
+          constraints.length > 0
+            ? `
+Constraints:
+- ${constraints.join("\n- ")}
+`
+            : "";
+
+        /**
+         * ------------------------------------------------------
+         * Prompt
+         * ------------------------------------------------------
+         */
+
+        const systemPrompt = `
+You are a professional writer and content creator.
+
+Responsibilities:
+1. Generate high-quality written content.
+2. Match requested tone and audience.
+3. Structure content clearly and professionally.
+4. Preserve clarity, readability, and coherence.
+
+Return ONLY valid JSON.
+        `;
+
+        const userPrompt = `
+Generate content based on the following request.
+
+[CONTENT TYPE]
+${type}
+
+[TOPIC]
 ${topic}
 
-Tone:
+[TONE]
 ${tone}
 
-Audience:
-${audience || "General audience"}
+[AUDIENCE]
+${audience}
 
-Language:
-${language}
-
-Length:
+[LENGTH]
 ${lengthGuide}
 
+[LANGUAGE]
+${language}
+
+[INSTRUCTIONS]
+${typeInstruction}
+
 ${constraintText}
-`;
 
-    try {
-      // 🔹 5. LLM 호출
-      const response = await chatMessages(
-        [
-          {
-            role: "system",
-            content:
-              "You are a highly skilled content generator. Always respond in valid JSON.",
+---
+
+Return JSON with:
+
+- title
+- content
+- outline
+- confidence
+- error
+        `;
+
+        /**
+         * ------------------------------------------------------
+         * Execute LLM Request
+         * ------------------------------------------------------
+         */
+
+        const response =
+          await chatMessages(
+            [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            zodResponseFormat(
+              GenerateContentSchema,
+              "generate_content_schema",
+            ),
+          );
+
+        /**
+         * ------------------------------------------------------
+         * Parse Response
+         * ------------------------------------------------------
+         */
+
+        const raw =
+          response.choices[0]?.message
+            ?.content;
+
+        if (!raw) {
+          return {
+            success: false,
+            error:
+              "Empty response from LLM",
+            metadata: {
+              tool: generateContentName,
+            },
+          };
+        }
+
+        let parsed: GenerateContentData;
+
+        try {
+          parsed =
+            GenerateContentSchema.parse(
+              JSON.parse(raw),
+            );
+        } catch {
+          parsed = {
+            title: "",
+            content: raw,
+            outline: [],
+            confidence: 0,
+            error:
+              "Schema parsing failed",
+          };
+        }
+
+        /**
+         * ------------------------------------------------------
+         * Return Structured Result
+         * ------------------------------------------------------
+         */
+
+        return {
+          success: true,
+          data: parsed,
+          metadata: {
+            tool: generateContentName,
+            model: response.model,
+            contentType: type,
+            tone,
+            language,
+            length,
+            outlineCount:
+              parsed.outline.length,
+            contentLength:
+              parsed.content.length,
+            confidence:
+              parsed.confidence,
+            executionId:
+              context.runtime.executionId,
           },
-          {
-            role: "user",
-            content: prompt,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error:
+            error?.message ||
+            "Unknown content generation error",
+          metadata: {
+            tool: generateContentName,
+            executionId:
+              context.runtime.executionId,
           },
-        ],
-        zodResponseFormat(GenerateContentSchema, "generate_content_schema"),
-      );
-
-      const text = response.choices[0]?.message?.content || "{}";
-
-      // 🔹 6. JSON 파싱
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        // fallback
-        parsed = {
-          title: "",
-          content: text,
-          outline: [],
         };
       }
-
-      return {
-        title: parsed.title || "",
-        content: parsed.content || "",
-        outline: parsed.outline || [],
-        confidence: 0.85,
-      };
-    } catch (error: any) {
-      return {
-        title: "",
-        content: "",
-        outline: [],
-        confidence: 0,
-        error: error.message,
-      };
-    }
-  },
-};
+    },
+  };

@@ -1,50 +1,115 @@
-import z from "zod";
-import { Intent, TokenUsage } from "../types";
+// ======================================================
+// Tool System (Graph Runtime OS Version)
+// ======================================================
 
-export interface ToolResult {
-  taskId: string;
-  toolName: string;
-  args: any; // 실제 호출에 사용된 인자
-  output: any; // 도구의 반환 값 (JSON; String 등)
-  isError: boolean;
-  errorMessage?: string;
-  duration: number;
-  completedAt: Date;
-  tokenUsage?: TokenUsage;
+import { ActionGraph, ActionNode, RuntimeContext } from "../core/types";
+
+/**
+ * ------------------------------------------------------
+ * Tool Categories
+ * ------------------------------------------------------
+ */
+
+export enum ToolCategory {
+  FILE_SYSTEM,
+  DATABASE,
+  WEB,
+  LLM,
+  EXECUTION,
+  ANALYSIS,
+  MEMORY,
+  SYSTEM,
 }
 
-export interface ToolCall {
-  id: string; // OpenAI/Anthropic 표준 ID
-  type: "function";
-  function: {
-    name: string;
-    arguments: string; // JSON String
+/**
+ * ------------------------------------------------------
+ * Side Effects
+ * ------------------------------------------------------
+ */
+
+export enum SideEffect {
+  FILE_WRITE = "file_write",
+  FILE_DELETE = "file_delete",
+  DATABASE_WRITE = "database_write",
+  NETWORK_CALL = "network_call",
+  PROCESS_EXECUTION = "process_execution",
+  MEMORY_UPDATE = "memory_update",
+}
+
+/**
+ * ------------------------------------------------------
+ * Tool Execution Context
+ * ------------------------------------------------------
+ *
+ * ReAct:
+ *   execute(args)
+ *
+ * Graph Runtime:
+ *   execute(context)
+ *
+ */
+
+export interface ToolExecutionContext {
+  node: ActionNode;
+  graph: ActionGraph;
+  runtime: RuntimeContext;
+  memory?: {
+    shortTerm?: any;
+    longTerm?: any;
+    retrieved?: any[];
   };
 }
 
-export type ToolAction = {
-  tool: string;
-  args: Record<string, any>;
-};
+/**
+ * ------------------------------------------------------
+ * Tool Result
+ * ------------------------------------------------------
+ */
 
-export const ToolActionSchema = z.object({
-  tool: z.string(),
-  args: z.any(),
-});
+export interface ToolResult<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * ------------------------------------------------------
+ * Tool Definition
+ * ------------------------------------------------------
+ */
 
 export interface ToolDefinition {
   name: string;
   description: string;
-  intents: Intent[];
+  category: ToolCategory;
+  inputSchema?: any;
+  outputSchema?: any;
+  capabilities?: string[];
+  sideEffects?: SideEffect[];
+  retryable?: boolean;
+  timeoutMs?: number;
+  version?: string;
   tags?: string[];
-  parameters?: {
-    type: "object";
-    properties: Record<string, any>;
-    required: string[];
-  };
 }
 
-// 실제 실행될 함수 타입
-export type ToolFunction = (args: any) => Promise<any>;
+/**
+ * ------------------------------------------------------
+ * Tool Function
+ * ------------------------------------------------------
+ */
 
-export type Tool = { definition: ToolDefinition; execute: ToolFunction };
+export type ToolFunction<T = any> = (
+  context: ToolExecutionContext
+) => Promise<ToolResult<T>>;
+
+/**
+ * ------------------------------------------------------
+ * Tool Interface
+ * ------------------------------------------------------
+ */
+
+export interface Tool<T = any> {
+  definition: ToolDefinition;
+  execute: ToolFunction<T>;
+}

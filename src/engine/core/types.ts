@@ -39,9 +39,8 @@ export const IntentResultSchema = z.object({
 
 export type ActionStatus =
   | "pending"
-  | "ready"
   | "running"
-  | "success"
+  | "completed"
   | "failed";
 
 export interface ActionNode {
@@ -71,6 +70,13 @@ export interface GraphTemplate {
   intent: Intent;
   nodes: ActionNode[];
   edges: ActionEdge[];
+}
+
+export interface RuntimeContext {
+  graphId: string;
+  executionId: string;
+  startedAt: number;
+  metadata?: Record<string, any>;
 }
 
 export type MutationEvent =

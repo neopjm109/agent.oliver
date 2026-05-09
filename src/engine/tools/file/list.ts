@@ -1,55 +1,200 @@
 import * as z from "zod";
-import { Tool } from "../types";
-import { ROOT_DIR, safePath } from "../../utils/paths";
 import { readdir, stat } from "fs/promises";
 import { join, relative } from "path";
+import { ROOT_DIR, safePath } from "../../utils/paths";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+} from "../types";
+
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
 
 export const ListFilesSchema = z.object({
-  pathname: z.string().describe("보여줄 파일리스트 경로"),
+  pathname: z.string().describe("조회할 디렉토리 경로"),
   recursive: z
     .boolean()
     .default(true)
-    .describe("true일 경우, 하위 디렉토리까지 전체 검색"),
+    .describe("하위 디렉토리까지 재귀적으로 탐색 여부"),
 });
 
-type ListFilesType = z.infer<typeof ListFilesSchema>;
-export const listFilesName = "list_files";
+export type ListFilesInput = z.infer<typeof ListFilesSchema>;
 
-export const listFilesTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size?: number;
+  modifiedAt?: number;
+}
+
+export interface ListFilesResult {
+  root: string;
+  recursive: boolean;
+  total: number;
+  files: FileEntry[];
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const listFilesName = "listFilesTool";
+
+/**
+ * ------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------
+ */
+
+async function scanDirectory(
+  dir: string,
+  recursive: boolean,
+): Promise<FileEntry[]> {
+  const entries = await readdir(dir);
+  const results: FileEntry[] = [];
+
+  for (const name of entries) {
+    const abs = join(dir, name);
+    const info = await stat(abs).catch(() => null);
+    if (!info) continue;
+
+    const isDirectory = info.isDirectory();
+    const relativePath = relative(ROOT_DIR, abs);
+
+    results.push({
+      name,
+      path: relativePath,
+      type: isDirectory ? "dir" : "file",
+      size: info.size,
+      modifiedAt: info.mtimeMs,
+    });
+
+    if (recursive && isDirectory) {
+      const children = await scanDirectory(abs, recursive);
+      results.push(...children);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const listFilesTool: Tool<ListFilesResult> = {
   definition: {
     name: listFilesName,
-    description: "",
-    intents: ["search"],
-    tags: ["file", "list", "search", "directory"],
-    parameters: {
+    description:
+      "Lists files and directories from the local filesystem with optional recursive traversal.",
+    category: ToolCategory.FILE_SYSTEM,
+    capabilities: [
+      "filesystem_access",
+      "directory_listing",
+      "recursive_scan",
+    ],
+    retryable: true,
+    timeoutMs: 15_000,
+    version: "1.0.0",
+    tags: ["filesystem", "directory", "list", "search"],
+    inputSchema: {
       type: "object",
       properties: {
-        pathname: { type: "string", description: "보여줄 파일리스트 경로" },
+        pathname: {
+          type: "string",
+          description: "Directory path to scan.",
+        },
         recursive: {
           type: "boolean",
-          description: "true일 경우, 하위 디렉토리까지 전체 검색",
+          description:
+            "Whether to recursively scan subdirectories.",
         },
       },
       required: ["pathname"],
     },
+
+    outputSchema: {
+      type: "object",
+    },
   },
-  execute: async (args: ListFilesType) => {
+
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<ListFilesResult>> {
     try {
-      const dir = safePath(args.pathname || ".");
-      const entries = await readdir(dir);
-      const details = await Promise.all(
-        entries.map(async (name) => {
-          const abs = join(dir, name);
-          const info = await stat(abs).catch(() => null);
-          const type = info?.isDirectory() ? "dir" : "file";
-          // ROOT 기준 상대경로로 표시 — read_file에 그대로 사용 가능
-          const relPath = relative(ROOT_DIR, abs);
-          return { name: relPath, type: type };
-        }),
-      );
-      return JSON.stringify(details);
-    } catch (err: unknown) {
-      return (err as Error).message;
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
+
+      const nodeInput = context.node.input || {};
+      const pathname = nodeInput.pathname || ".";
+      const recursive = nodeInput.recursive ?? true;
+
+      /**
+       * ------------------------------------------------------
+       * Validate Path
+       * ------------------------------------------------------
+       */
+
+      const dir = safePath(pathname);
+
+      /**
+       * ------------------------------------------------------
+       * Scan Directory
+       * ------------------------------------------------------
+       */
+
+      const files = await scanDirectory(dir, recursive);
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: {
+          root: relative(ROOT_DIR, dir),
+          recursive,
+          total: files.length,
+          files,
+        },
+        metadata: {
+          tool: listFilesName,
+          root: dir,
+          recursive,
+          fileCount: files.length,
+          executionId: context.runtime.executionId,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown filesystem error",
+        metadata: {
+          tool: listFilesName,
+          executionId: context.runtime.executionId,
+        },
+      };
     }
   },
 };

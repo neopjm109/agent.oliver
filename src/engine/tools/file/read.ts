@@ -1,54 +1,187 @@
 import * as z from "zod";
-import { Tool } from "../types";
-import { safePath } from "../../utils/paths";
-import { readFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
+import { relative, extname } from "path";
+import { safePath, ROOT_DIR } from "../../utils/paths";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+} from "../types";
+
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
 
 export const ReadFilesSchema = z.object({
   pathname: z
     .string()
-    .describe("Path to the file (relative to root, or absolute within root)"),
+    .describe(
+      "Path to the file (relative to root or absolute within root)",
+    ),
 });
 
-type ReadFileType = z.infer<typeof ReadFilesSchema>;
-export const readFileName = "read_file";
+export type ReadFileInput = z.infer<typeof ReadFilesSchema>;
 
-export const readFileTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface ReadFileResult {
+  pathname: string;
+  extension: string;
+  size: number;
+  content: string;
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const readFileName = "readFileTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const readFileTool: Tool<ReadFileResult> = {
   definition: {
     name: readFileName,
     description:
-      "Read the contents of a file. Paths are relative to the root directory.",
-    intents: ["search"],
-    tags: ["file", "read", "search"],
-    parameters: {
+      "Reads the contents of a file from the local filesystem.",
+    category: ToolCategory.FILE_SYSTEM,
+    capabilities: [
+      "filesystem_read",
+      "file_access",
+      "content_loading",
+    ],
+    retryable: true,
+    timeoutMs: 10_000,
+    version: "1.0.0",
+    tags: ["filesystem", "read", "file", "content"],
+    inputSchema: {
       type: "object",
       properties: {
         pathname: {
           type: "string",
           description:
-            "Path to the file (relative to root, or absolute within root)",
+            "Path to the file relative to the project root.",
         },
       },
       required: ["pathname"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
-  execute: async (args: ReadFileType) => {
-    const { pathname } = args;
-    if (!pathname)
-      return {
-        status: "failed",
-        reason: "Error: 'pathname' parameter is required",
-      };
 
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<ReadFileResult>> {
     try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
+
+      const nodeInput = context.node.input || {};
+      const pathname = nodeInput.pathname;
+
+      if (!pathname) {
+        return {
+          success: false,
+          error: "Missing required input: pathname",
+          metadata: {
+            tool: readFileName,
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Resolve Safe Path
+       * ------------------------------------------------------
+       */
+
       const abs = safePath(pathname);
+
+      /**
+       * ------------------------------------------------------
+       * Validate File
+       * ------------------------------------------------------
+       */
+
+      const fileInfo = await stat(abs).catch(() => null);
+
+      if (!fileInfo) {
+        return {
+          success: false,
+          error: `File does not exist: ${pathname}`,
+          metadata: {
+            tool: readFileName,
+            executionId: context.runtime.executionId,
+          },
+        };
+      }
+
+      if (!fileInfo.isFile()) {
+        return {
+          success: false,
+          error: `Path is not a file: ${pathname}`,
+          metadata: {
+            tool: readFileName,
+            executionId: context.runtime.executionId,
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Read File
+       * ------------------------------------------------------
+       */
+
       const content = await readFile(abs, "utf-8");
 
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
       return {
-        pathname: args.pathname,
-        content: content, // 원문
+        success: true,
+        data: {
+          pathname: relative(ROOT_DIR, abs),
+          extension: extname(abs),
+          size: fileInfo.size,
+          content,
+        },
+        metadata: {
+          tool: readFileName,
+          pathname: abs,
+          fileSize: fileInfo.size,
+          executionId: context.runtime.executionId,
+        },
       };
-    } catch (err: unknown) {
-      return (err as Error).message;
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown read file error",
+        metadata: {
+          tool: readFileName,
+          executionId: context.runtime.executionId,
+        },
+      };
     }
   },
 };

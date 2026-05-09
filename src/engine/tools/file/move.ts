@@ -1,63 +1,202 @@
 import * as z from "zod";
-import { Tool } from "../types";
-import { safePath } from "../../utils/paths";
-import { dirname } from "path";
-import { mkdir, rename } from "fs/promises";
+import { dirname, relative } from "path";
+import { mkdir, rename, stat } from "fs/promises";
+import { safePath, ROOT_DIR } from "../../utils/paths";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
+
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
 
 export const MoveFilesSchema = z.object({
-  source: z.string().describe("Original path of the file/directory"),
+  source: z
+    .string()
+    .describe("Original path of the file or directory"),
   destination: z
     .string()
-    .describe("New path (target path) for the file/directory"),
+    .describe("Target path for the file or directory"),
 });
 
-type MoveFileType = z.infer<typeof MoveFilesSchema>;
-export const moveFileName = "move_file";
+export type MoveFileInput = z.infer<typeof MoveFilesSchema>;
 
-export const moveFileTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface MoveFileResult {
+  source: string;
+  destination: string;
+  moved: boolean;
+  type: "file" | "dir";
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const moveFileName = "moveFileTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const moveFileTool: Tool<MoveFileResult> = {
   definition: {
     name: moveFileName,
-    description: "Rename or move a file/directory to a new path.",
-    intents: ["compute"],
-    tags: ["file", "rename", "move"],
-    parameters: {
+    description:
+      "Moves or renames a file or directory to a new target path.",
+    category: ToolCategory.FILE_SYSTEM,
+    capabilities: [
+      "filesystem_write",
+      "file_move",
+      "file_rename",
+      "directory_move",
+    ],
+    sideEffects: [
+      SideEffect.FILE_WRITE,
+      SideEffect.FILE_DELETE,
+    ],
+    retryable: false,
+    timeoutMs: 15_000,
+    version: "1.0.0",
+    tags: ["filesystem", "move", "rename", "file"],
+    inputSchema: {
       type: "object",
       properties: {
         source: {
           type: "string",
-          description: "Original path of the file/directory",
+          description:
+            "Original path of the file or directory.",
         },
         destination: {
           type: "string",
-          description: "New path (target path) for the file/directory",
+          description:
+            "New target path for the file or directory.",
         },
       },
       required: ["source", "destination"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
-  execute: async (args: MoveFileType) => {
-    const { source, destination } = args;
-    if (!source || !destination) {
-      return {
-        status: "failed",
-        reason: "Missing required parameters: source, destination",
-      };
-    }
 
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<MoveFileResult>> {
     try {
-      const oldAbs = safePath(source);
-      const newAbs = safePath(destination);
-      const newDir = dirname(newAbs);
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-      // 대상 디렉토리가 없으면 생성
-      await mkdir(newDir, { recursive: true });
+      const nodeInput = context.node.input || {};
+      const source = nodeInput.source;
+      const destination = nodeInput.destination;
 
-      // 이동 또는 이름 변경 실행
-      await rename(oldAbs, newAbs);
+      if (!source || !destination) {
+        return {
+          success: false,
+          error:
+            "Missing required input: source or destination",
+          metadata: {
+            tool: moveFileName,
+          },
+        };
+      }
 
-      return `Successfully moved/renamed ${source} to ${destination}`;
-    } catch (err: unknown) {
-      return (err as Error).message;
+      /**
+       * ------------------------------------------------------
+       * Resolve Safe Paths
+       * ------------------------------------------------------
+       */
+
+      const sourceAbs = safePath(source);
+      const destinationAbs = safePath(destination);
+
+      /**
+       * ------------------------------------------------------
+       * Validate Source
+       * ------------------------------------------------------
+       */
+
+      const sourceInfo = await stat(sourceAbs).catch(() => null);
+
+      if (!sourceInfo) {
+        return {
+          success: false,
+          error: `Source path does not exist: ${source}`,
+          metadata: {
+            tool: moveFileName,
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Create Target Directory
+       * ------------------------------------------------------
+       */
+
+      const targetDir = dirname(destinationAbs);
+
+      await mkdir(targetDir, {
+        recursive: true,
+      });
+
+      /**
+       * ------------------------------------------------------
+       * Move / Rename
+       * ------------------------------------------------------
+       */
+
+      await rename(sourceAbs, destinationAbs);
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: {
+          source: relative(ROOT_DIR, sourceAbs),
+          destination: relative(ROOT_DIR, destinationAbs),
+          moved: true,
+          type: sourceInfo.isDirectory() ? "dir" : "file",
+        },
+        metadata: {
+          tool: moveFileName,
+          source: sourceAbs,
+          destination: destinationAbs,
+          executionId: context.runtime.executionId,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown move file error",
+        metadata: {
+          tool: moveFileName,
+          executionId: context.runtime.executionId,
+        },
+      };
     }
   },
 };

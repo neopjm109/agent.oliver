@@ -1,10 +1,22 @@
 import { zodResponseFormat } from "openai/helpers/zod.js";
 import z from "zod";
-import { chatMessages } from "../../../client/client";
-import { IntentSchema } from "../../types";
-import { Tool } from "../types";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
+import { IntentSchema } from "../../core/types";
+import { chatMessages } from "../../client/client";
 
-const AnalyzeSchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const AnalyzeSchema = z.object({
   intent: IntentSchema,
   next_intent: z.string(),
   summary: z.string(),
@@ -20,104 +32,194 @@ const AnalyzeSchema = z.object({
     should_verify: z.boolean(),
     confidence: z.number(),
   }),
+
   suggested_actions: z.array(z.string()),
+
   confidence: z.number(),
 });
 
-export type AnalyzeType = z.infer<z.ZodType<typeof AnalyzeSchema>>;
+export type AnalyzeData = z.infer<typeof AnalyzeSchema>;
 
-export const analyzeTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const analyzeToolName = "analyzeTool";
+
+/**
+ * ------------------------------------------------------
+ * Analyze Tool
+ * ------------------------------------------------------
+ */
+
+export const analyzeTool: Tool<AnalyzeData> = {
   definition: {
-    name: "analyze_input",
+    name: analyzeToolName,
     description:
-      "Analyzes user input and determines the most appropriate next action (intent). Extracts structured insights including user intent, requirements, constraints, risks, and ambiguities. This tool is used as the first step in the reasoning pipeline.",
-    intents: ["analyze"],
+      "Analyzes user input and extracts structured reasoning insights for graph orchestration.",
+    category: ToolCategory.ANALYSIS,
+    capabilities: [
+      "intent_detection",
+      "requirement_extraction",
+      "risk_analysis",
+      "routing",
+    ],
+
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 30_000,
+    version: "1.0.0",
     tags: ["analysis", "reasoning", "routing", "core"],
-    parameters: {
+
+    inputSchema: {
       type: "object",
       properties: {
         input: {
           type: "string",
-          description: "The original input text provided by the user.",
         },
         context: {
           type: "object",
-          description:
-            "Accumulated context from previous steps (optional). Used to refine analysis and maintain continuity.",
           additionalProperties: true,
         },
       },
       required: ["input"],
     },
+
+    outputSchema: {
+      type: "object",
+    },
   },
 
-  execute: async (args: any) => {
-    const { input, context } = args;
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<AnalyzeData>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Node Input
+       * ------------------------------------------------------
+       */
 
-    const systemPrompt = `
-You are an expert AI system that analyzes user input and extracts structured insights for downstream processing.
+      const nodeInput = context.node.input || {};
+      const input = nodeInput.input;
+      const previousContext =
+        nodeInput.context ||
+        context.memory?.shortTerm ||
+        context.memory?.retrieved;
 
-Your task is to:
+      /**
+       * ------------------------------------------------------
+       * Prompt
+       * ------------------------------------------------------
+       */
+
+      const systemPrompt = `
+You are an expert AI system that analyzes user input and extracts structured insights for downstream graph orchestration.
+
+Your responsibilities:
 1. Understand the user's true intent.
-2. Extract key requirements, constraints, and assumptions.
+2. Extract requirements, constraints, assumptions.
 3. Identify risks and ambiguities.
-4. Determine the most appropriate next action (next_intent).
+4. Determine the most appropriate next action.
 
-You must respond ONLY in valid JSON format.
-Do not include any explanations or additional text outside the JSON.
-    `;
+Return ONLY valid JSON.
+      `;
 
-    const userPrompt = `
-Analyze the following user input and return structured insights.
+      const userPrompt = `
+Analyze the following input.
 
 [INPUT]
 ${input}
 
-[CONTEXT] (optional)
-${context}
+[CONTEXT]
+${JSON.stringify(previousContext, null, 2)}
 
 ---
 
-Return JSON with the following fields:
+Return JSON with:
 
-- intent: one of ["search", "analyze", "compute", "generate", "execute", "verify", "finish"]
-- next_intent: one of ["search", "analyze", "compute", "generate", "execute", "verify", "finish"]
+- intent
+- next_intent
+- summary
+- requirements
+- constraints
+- assumptions
+- risks
+- ambiguities
+- routing
+- suggested_actions
+- confidence
+      `;
 
-- summary: short and concise summary
+      /**
+       * ------------------------------------------------------
+       * LLM Call
+       * ------------------------------------------------------
+       */
 
-- requirements: array of explicit user requirements
-- constraints: array of limitations or conditions
-- assumptions: array of inferred assumptions
+      const response = await chatMessages(
+        [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
 
-- risks: array of potential risks or failure points
-- ambiguities: array of unclear or underspecified parts
+        zodResponseFormat(AnalyzeSchema, "analyze_schema"),
+      );
 
-- routing:
-  - is_simple_query: boolean
-  - should_search: boolean
-  - should_compute: boolean
-  - should_verify: boolean
-  - confidence: number (0.0 ~ 1.0)
+      /**
+       * ------------------------------------------------------
+       * Parse Result
+       * ------------------------------------------------------
+       */
 
-- suggested_actions: array of recommended next steps
+      const raw = response.choices[0]?.message?.content;
 
-- confidence: number (0.0 ~ 1.0)
-    `;
+      if (!raw) {
+        return {
+          success: false,
+          error: "Empty response from LLM",
+          metadata: {
+            tool: "analyze",
+          },
+        };
+      }
 
-    const result = await chatMessages(
-      [
-        {
-          role: "system",
-          content: systemPrompt,
+      const parsed = AnalyzeSchema.parse(JSON.parse(raw));
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: parsed,
+        metadata: {
+          tool: "analyze",
+          model: response.model,
+          confidence: parsed.confidence,
+          nextIntent: parsed.next_intent,
+          executionId: context.runtime.executionId,
         },
-        {
-          role: "user",
-          content: userPrompt,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown analyze error",
+        metadata: {
+          tool: "analyze",
+          executionId: context.runtime.executionId,
         },
-      ],
-      zodResponseFormat(AnalyzeSchema, "analyze_schema"),
-    );
-
-    return JSON.parse(result.choices[0].message?.content || "");
+      };
+    }
   },
 };

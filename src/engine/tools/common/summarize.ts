@@ -1,9 +1,21 @@
 import z from "zod";
-import { Tool } from "../types";
-import { chatMessages } from "../../../client/client";
 import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatMessages } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const SummarizeSchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const SummarizeSchema = z.object({
   summary: z.string(),
   key_points: z.array(z.string()),
   important_entities: z.array(z.string()),
@@ -14,60 +26,121 @@ const SummarizeSchema = z.object({
   confidence: z.number(),
 });
 
-export type SummarizeType = z.infer<z.ZodType<typeof SummarizeSchema>>;
+export type SummarizeData = z.infer<typeof SummarizeSchema>;
 
-export const summarizeTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const summarizeToolName = "summarizeTool";
+
+/**
+ * ------------------------------------------------------
+ * Summarize Tool
+ * ------------------------------------------------------
+ */
+
+export const summarizeTool: Tool<SummarizeData> = {
   definition: {
-    name: "summarize_text",
+    name: summarizeToolName,
     description:
-      "Summarizes long text or accumulated context into a concise and structured format. Optimized for reducing token usage while preserving key information for further reasoning or processing.",
-    intents: ["analyze"],
-    tags: ["summarization", "context-management", "memory", "optimization"],
-    parameters: {
+      "Summarizes long text or accumulated graph context into a concise structured representation optimized for downstream reasoning and memory compression.",
+    category: ToolCategory.ANALYSIS,
+    capabilities: [
+      "summarization",
+      "context_compression",
+      "memory_optimization",
+      "information_extraction",
+    ],
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 45_000,
+    version: "1.0.0",
+    tags: [
+      "summary",
+      "compression",
+      "memory",
+      "analysis",
+      "optimization",
+    ],
+    inputSchema: {
       type: "object",
       properties: {
         text: {
           type: "string",
-          description: "The text content to summarize.",
+          description: "Text content to summarize.",
         },
         maxLength: {
           type: "number",
           description:
-            "Maximum length of the summary (in tokens or approximate characters). Optional.",
+            "Optional maximum summary length in approximate characters or tokens.",
         },
         format: {
           type: "string",
           enum: ["compact", "bullet", "structured"],
-          description:
-            "Output format of the summary. 'compact' = short paragraph, 'bullet' = key points, 'structured' = categorized summary.",
+          description: "Summary output format.",
         },
         focus: {
           type: "string",
           description:
-            "Optional focus area (e.g., requirements, decisions, errors). Helps guide summarization.",
+            "Optional summarization focus area such as requirements, decisions, risks, or errors.",
         },
       },
       required: ["text"],
     },
+
+    outputSchema: {
+      type: "object",
+    },
   },
 
-  execute: async (args: any) => {
-    const { text, maxLength, format = "structured", focus } = args;
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<SummarizeData>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-    const systemPrompt = `
-You are an expert AI system that summarizes long text into a concise and structured format optimized for downstream reasoning.
+      const nodeInput = context.node.input || {};
+      const text = nodeInput.text;
+      const maxLength = nodeInput.maxLength;
+      const format = nodeInput.format || "structured";
+      const focus = nodeInput.focus;
 
-Your goal is to:
+      if (!text) {
+        return {
+          success: false,
+          error: "Missing required input: text",
+          metadata: {
+            tool: "summarize",
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Prompt
+       * ------------------------------------------------------
+       */
+
+      const systemPrompt = `
+You are an expert AI system that summarizes long text into a compact and structured representation optimized for downstream graph reasoning and memory reuse.
+
+Goals:
 1. Preserve the most important information.
-2. Remove redundancy and noise.
-3. Keep the summary compact but meaningful.
-4. Structure the output for easy reuse in future processing.
+2. Remove redundancy and irrelevant noise.
+3. Compress context efficiently.
+4. Structure outputs for future orchestration.
 
-You must respond ONLY in valid JSON format.
-Do not include any explanations or additional text outside the JSON.
-    `;
+Return ONLY valid JSON.
+      `;
 
-    const userPrompt = `
+      const userPrompt = `
 Summarize the following text.
 
 [TEXT]
@@ -75,41 +148,92 @@ ${text}
 
 [OPTIONS]
 - max_length: ${maxLength}
-- format: ${format} (compact | bullet | structured)
+- format: ${format}
 - focus: ${focus}
 
 ---
 
-Return JSON with the following fields:
+Return JSON with:
 
-- summary: concise summary of the text
+- summary
+- key_points
+- important_entities
+- decisions
+- open_questions
+- compressed_context
+- compression_ratio
+- confidence
+      `;
 
-- key_points: array of key points
-- important_entities: array of important concepts, objects, or subjects
+      /**
+       * ------------------------------------------------------
+       * Execute LLM Request
+       * ------------------------------------------------------
+       */
 
-- decisions: array of decisions mentioned (if any)
-- open_questions: array of unresolved questions (if any)
+      const response = await chatMessages(
+        [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
 
-- compressed_context: a compact version of the text optimized for reuse as LLM input
+        zodResponseFormat(SummarizeSchema, "summarize_schema"),
+      );
 
-- compression_ratio: number (0.0 ~ 1.0)
-- confidence: number (0.0 ~ 1.0)
-    `;
+      /**
+       * ------------------------------------------------------
+       * Parse Response
+       * ------------------------------------------------------
+       */
 
-    const result = await chatMessages(
-      [
-        {
-          role: "system",
-          content: systemPrompt,
+      const raw = response.choices[0]?.message?.content;
+
+      if (!raw) {
+        return {
+          success: false,
+          error: "Empty response from LLM",
+          metadata: {
+            tool: "summarize",
+          },
+        };
+      }
+
+      const parsed = SummarizeSchema.parse(JSON.parse(raw));
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: parsed,
+        metadata: {
+          tool: "summarize",
+          model: response.model,
+          compressionRatio: parsed.compression_ratio,
+          confidence: parsed.confidence,
+          originalLength: text.length,
+          compressedLength: parsed.compressed_context.length,
+          executionId: context.runtime.executionId,
         },
-        {
-          role: "user",
-          content: userPrompt,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown summarize error",
+        metadata: {
+          tool: "summarize",
+          executionId: context.runtime.executionId,
         },
-      ],
-      zodResponseFormat(SummarizeSchema, "summarize_schema"),
-    );
-
-    return JSON.parse(result.choices[0].message?.content || "");
+      };
+    }
   },
 };

@@ -141,3 +141,15 @@ export const ReportGenerateTemplate: GraphTemplate = {
     { from: "refine", to: "format" },
   ],
 };
+
+export const TEMPLATES_LIST = [
+  SimpleResponseTemplate,
+  TranslateTemplate,
+  RunExecuteTemplate,
+  WebResearchTemplate,
+  DocAnalysisTemplate,
+  CodeGenerateTemplate,
+  CodeDebuggingTemplate,
+  ScenarioGenerateTemplate,
+  ReportGenerateTemplate,
+];

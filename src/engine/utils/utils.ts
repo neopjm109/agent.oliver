@@ -1,4 +1,4 @@
-import { TokenUsage } from "../types";
+// import { TokenUsage } from "../types";
 import { exec } from "child_process";
 import { promisify } from "util";
 
@@ -18,21 +18,21 @@ export function safeToLowerCase(text: string): string {
 }
 
 // 토큰 사용량 계산
-export const calculateTotalTokenUsage = (
-  origin: TokenUsage,
-  source: TokenUsage,
-) => {
-  const promptTokens = origin.promptTokens + source.promptTokens;
-  const completionTokens = origin.completionTokens + source.completionTokens;
-  const totalTokens = origin.totalTokens + source.totalTokens;
-  const estimatedCost =
-    origin.estimatedCost || 0 + (totalTokens / 1000000) * 0.01;
-  return {
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedCost,
-  };
-};
+// export const calculateTotalTokenUsage = (
+//   origin: TokenUsage,
+//   source: TokenUsage,
+// ) => {
+//   const promptTokens = origin.promptTokens + source.promptTokens;
+//   const completionTokens = origin.completionTokens + source.completionTokens;
+//   const totalTokens = origin.totalTokens + source.totalTokens;
+//   const estimatedCost =
+//     origin.estimatedCost || 0 + (totalTokens / 1000000) * 0.01;
+//   return {
+//     promptTokens,
+//     completionTokens,
+//     totalTokens,
+//     estimatedCost,
+//   };
+// };
 
 export const execAsync = promisify(exec);

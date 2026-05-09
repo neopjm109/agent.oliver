@@ -16,7 +16,7 @@ import { generateCodeTool } from "./work/generate_code";
 import { generateContentTool } from "./work/generate_content";
 import { runCommandTool } from "./work/run_command";
 
-export const ToolList = [
+export const TOOL_LIST = [
   simpleResponseTool,
   verifyOutputTool,
   listFilesTool,

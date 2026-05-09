@@ -1,29 +1,154 @@
-import { chatInput } from "../../../client/client";
-import { Tool } from "../types";
+import { chatInput } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const simpleResponseTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface SimpleResponseResult {
+  response: string;
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const simpleResponseToolName = "simpleResponseTool";
+
+/**
+ * ------------------------------------------------------
+ * Simple Response Tool
+ * ------------------------------------------------------
+ */
+
+export const simpleResponseTool: Tool<SimpleResponseResult> = {
   definition: {
-    name: "simple_llm_response",
+    name: simpleResponseToolName,
     description:
-      "Use LLM to analyze or generate a direct response for a given input.",
-    intents: ["analyze"],
-    parameters: {
+      "Uses an LLM to generate a direct natural language response for a given input.",
+    category: ToolCategory.LLM,
+    capabilities: [
+      "text_generation",
+      "question_answering",
+      "summarization",
+      "general_reasoning",
+    ],
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 30_000,
+    version: "1.0.0",
+    tags: ["llm", "response", "generation", "text"],
+    inputSchema: {
       type: "object",
       properties: {
         input: {
           type: "string",
-          description: "The text or question to analyze",
+          description: "User input text.",
+        },
+        instruction: {
+          type: "string",
+          description:
+            "Optional system-level instruction for controlling the response.",
         },
       },
       required: ["input"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
-  execute: async (args: { input: string; instruction?: string }) => {
-    const { input } = args;
-    const result = await chatInput(input, { type: "text" });
-    return {
-      response: result.choices[0].message?.content || "",
-    };
+
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<SimpleResponseResult>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
+
+      const nodeInput = context.node.input || {};
+      const input = nodeInput.input;
+      const instruction = nodeInput.instruction;
+
+      if (!input) {
+        return {
+          success: false,
+          error: "Missing required input: input",
+          metadata: {
+            tool: "simple_response",
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Build Final Prompt
+       * ------------------------------------------------------
+       */
+
+      const finalInput = instruction
+        ? `
+[INSTRUCTION]
+${instruction}
+
+[INPUT]
+${input}
+`
+        : input;
+
+      /**
+       * ------------------------------------------------------
+       * Execute LLM Request
+       * ------------------------------------------------------
+       */
+
+      const result = await chatInput(finalInput, {
+        type: "text",
+      });
+
+      const response =
+        result?.choices?.[0]?.message?.content?.trim() || "";
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: {
+          response,
+        },
+        metadata: {
+          tool: "simple_response",
+          model: result.model,
+          executionId: context.runtime.executionId,
+          responseLength: response.length,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown simple response error",
+        metadata: {
+          tool: "simple_response",
+          executionId: context.runtime.executionId,
+        },
+      };
+    }
   },
 };
 

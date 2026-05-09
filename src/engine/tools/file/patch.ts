@@ -1,71 +1,228 @@
 import * as z from "zod";
-import { Tool } from "../types";
-import { safePath } from "../../utils/paths";
 import { readFile, writeFile } from "fs/promises";
+import { relative } from "path";
+import { safePath, ROOT_DIR } from "../../utils/paths";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
+
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
 
 export const PatchFilesSchema = z.object({
   pathname: z
     .string()
-    .describe("Path to the file (relative to root, or absolute within root)"),
+    .describe(
+      "Path to the file (relative to root or absolute within root)",
+    ),
   search: z
     .string()
-    .describe("The exact string/code block to find in the file"),
-  replace: z.string().describe("The new string/code block to replace it with"),
+    .describe("Exact string or code block to find"),
+  replace: z
+    .string()
+    .describe("Replacement string or code block"),
 });
 
-type PatchFileType = z.infer<typeof PatchFilesSchema>;
-export const patchFileName = "patch_file";
+export type PatchFileInput = z.infer<typeof PatchFilesSchema>;
 
-export const patchFileTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface PatchFileResult {
+  pathname: string;
+  patched: boolean;
+  replacements: number;
+  originalLength: number;
+  updatedLength: number;
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const patchFileName = "patchFileTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const patchFileTool: Tool<PatchFileResult> = {
   definition: {
     name: patchFileName,
     description:
-      "Replace a specific portion of a file's content with new content. Useful for large files.",
-    intents: ["compute"],
-    tags: ["file", "replace", "patch"],
-    parameters: {
+      "Replaces a specific portion of a file with new content using exact string matching.",
+    category: ToolCategory.FILE_SYSTEM,
+    capabilities: [
+      "filesystem_write",
+      "file_patch",
+      "code_modification",
+      "content_replacement",
+    ],
+    sideEffects: [SideEffect.FILE_WRITE],
+    retryable: false,
+    timeoutMs: 20_000,
+    version: "1.0.0",
+    tags: [
+      "filesystem",
+      "patch",
+      "replace",
+      "modify",
+      "code",
+    ],
+    inputSchema: {
       type: "object",
       properties: {
         pathname: {
           type: "string",
           description:
-            "Path to the file (relative to root, or absolute within root)",
+            "Target file path relative to project root.",
         },
         search: {
           type: "string",
-          description: "The exact string/code block to find in the file",
+          description:
+            "Exact string or code block to search for.",
         },
         replace: {
           type: "string",
-          description: "The new string/code block to replace it with",
+          description:
+            "Replacement string or code block.",
         },
       },
-      required: ["path", "search", "replace"],
+      required: ["pathname", "search", "replace"],
+    },
+    outputSchema: {
+      type: "object",
     },
   },
-  execute: async (args: PatchFileType) => {
-    const { pathname, search, replace } = args;
-    if (!pathname || search === undefined || replace === undefined) {
-      return {
-        status: "failed",
-        reason: "Missing required parameters: pathname, search, replace",
-      };
-    }
 
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<PatchFileResult>> {
     try {
-      const abs = safePath(pathname);
-      const content = await readFile(abs, "utf-8");
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-      if (!content.includes(search)) {
-        return "Error: The search string was not found in the file. Make sure the search string matches exactly (including indentation).";
+      const nodeInput = context.node.input || {};
+      const pathname = nodeInput.pathname;
+      const search = nodeInput.search;
+      const replace = nodeInput.replace;
+
+      if (
+        !pathname ||
+        search === undefined ||
+        replace === undefined
+      ) {
+        return {
+          success: false,
+          error:
+            "Missing required input: pathname, search, replace",
+          metadata: {
+            tool: patchFileName,
+          },
+        };
       }
 
-      const newContent = content.replace(search, replace);
-      await writeFile(abs, newContent, "utf-8");
+      /**
+       * ------------------------------------------------------
+       * Resolve Path
+       * ------------------------------------------------------
+       */
 
-      return `Successfully patched ${pathname}`;
-    } catch (err: unknown) {
-      return (err as Error).message;
+      const abs = safePath(pathname);
+
+      /**
+       * ------------------------------------------------------
+       * Read File
+       * ------------------------------------------------------
+       */
+
+      const content = await readFile(abs, "utf-8");
+
+      /**
+       * ------------------------------------------------------
+       * Validate Search Match
+       * ------------------------------------------------------
+       */
+
+      if (!content.includes(search)) {
+        return {
+          success: false,
+          error:
+            "Search string not found in file. Ensure exact match including whitespace and indentation.",
+          metadata: {
+            tool: patchFileName,
+            pathname,
+            executionId: context.runtime.executionId,
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Patch Content
+       * ------------------------------------------------------
+       */
+
+      const replacements =
+        content.split(search).length - 1;
+      const updatedContent = content.replace(search, replace);
+
+      /**
+       * ------------------------------------------------------
+       * Write File
+       * ------------------------------------------------------
+       */
+
+      await writeFile(abs, updatedContent, "utf-8");
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: {
+          pathname: relative(ROOT_DIR, abs),
+          patched: true,
+          replacements,
+          originalLength: content.length,
+          updatedLength: updatedContent.length,
+        },
+        metadata: {
+          tool: patchFileName,
+          pathname: abs,
+          replacements,
+          executionId: context.runtime.executionId,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown patch file error",
+        metadata: {
+          tool: patchFileName,
+          executionId: context.runtime.executionId,
+        },
+      };
     }
   },
 };

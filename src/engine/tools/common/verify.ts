@@ -1,9 +1,21 @@
-import { zodResponseFormat } from "openai/helpers/zod.js";
-import { chatMessages } from "../../../client/client";
-import { Tool } from "../types";
 import z from "zod";
+import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatMessages } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const VerifySchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const VerifySchema = z.object({
   is_valid: z.boolean(),
   score: z.number(),
   issues: z.array(z.string()),
@@ -13,83 +25,206 @@ const VerifySchema = z.object({
   error: z.string().optional().nullable(),
 });
 
-export type VerifyType = z.infer<z.ZodType<typeof VerifySchema>>;
+export type VerifyData = z.infer<typeof VerifySchema>;
 
-export const verifyOutputTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const verifyOutputToolName = "verifyOutputTool";
+
+/**
+ * ------------------------------------------------------
+ * Verify Output Tool
+ * ------------------------------------------------------
+ */
+
+export const verifyOutputTool: Tool<VerifyData> = {
   definition: {
-    name: "verify_output",
+    name: verifyOutputToolName,
     description:
-      "Evaluates whether a given output meets requirements, is correct, consistent, and reliable.",
-
-    intents: ["verify"],
-
-    tags: ["verification", "quality", "validation"],
-
-    parameters: {
+      "Evaluates whether generated output is valid, complete, consistent, and aligned with user requirements.",
+    category: ToolCategory.ANALYSIS,
+    capabilities: [
+      "validation",
+      "quality_assurance",
+      "consistency_check",
+      "output_evaluation",
+      "improvement_suggestion",
+    ],
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 30_000,
+    version: "1.0.0",
+    tags: [
+      "verification",
+      "validation",
+      "quality",
+      "evaluation",
+      "reasoning",
+    ],
+    inputSchema: {
       type: "object",
       properties: {
         input: {
           type: "string",
-          description: "Original user request or requirement.",
+          description:
+            "Original user request, requirement, or expected objective.",
         },
         output: {
           type: "string",
-          description: "Generated result to verify.",
+          description: "Generated output to verify.",
         },
         criteria: {
           type: "array",
-          items: { type: "string" },
-          description: "Optional evaluation criteria.",
+          items: {
+            type: "string",
+          },
+          description:
+            "Optional custom evaluation criteria for validation.",
         },
       },
       required: ["output"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
 
-  execute: async (args: any) => {
-    const { input = "", output, criteria = [] } = args;
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<VerifyData>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-    const criteriaText =
-      criteria.length > 0
-        ? `Evaluation Criteria:\n- ${criteria.join("\n- ")}`
-        : "Evaluate correctness, completeness, and consistency.";
+      const nodeInput = context.node.input || {};
+      const input = nodeInput.input || "";
+      const output = nodeInput.output;
+      const criteria = nodeInput.criteria || [];
 
-    const prompt = `
-You are a strict evaluator.
+      if (!output) {
+        return {
+          success: false,
+          error: "Missing required input: output",
+          metadata: {
+            tool: "verify_output",
+          },
+        };
+      }
 
-Task:
-Verify the given output.
+      /**
+       * ------------------------------------------------------
+       * Build Criteria
+       * ------------------------------------------------------
+       */
 
-Input (optional):
+      const criteriaText =
+        criteria.length > 0
+          ? `
+Evaluation Criteria:
+- ${criteria.join("\n- ")}
+`
+          : `
+Evaluate:
+- correctness
+- completeness
+- consistency
+- clarity
+- reliability
+`;
+
+      /**
+       * ------------------------------------------------------
+       * Prompt
+       * ------------------------------------------------------
+       */
+
+      const systemPrompt = `
+You are a strict and highly precise evaluator.
+
+Responsibilities:
+1. Verify correctness and consistency.
+2. Detect issues or weaknesses.
+3. Suggest improvements.
+4. Improve output quality if necessary.
+
+Return ONLY valid JSON.
+      `;
+
+      const userPrompt = `
+Verify the following output.
+
+[INPUT]
 ${input}
 
-Output to evaluate:
+[OUTPUT]
 ${output}
 
 ${criteriaText}
-`;
 
-    try {
+---
+
+Return JSON with:
+
+- is_valid
+- score
+- issues
+- suggestions
+- improved_output
+- confidence
+- error
+      `;
+
+      /**
+       * ------------------------------------------------------
+       * Execute LLM Request
+       * ------------------------------------------------------
+       */
+
       const response = await chatMessages(
         [
           {
             role: "system",
-            content:
-              "You are a strict and precise evaluator. Always respond in valid JSON.",
+            content: systemPrompt,
           },
           {
             role: "user",
-            content: prompt,
+            content: userPrompt,
           },
         ],
         zodResponseFormat(VerifySchema, "verify_schema"),
       );
 
-      const raw = response.choices[0]?.message?.content || "{}";
+      /**
+       * ------------------------------------------------------
+       * Parse Response
+       * ------------------------------------------------------
+       */
 
-      let parsed;
+      const raw = response.choices[0]?.message?.content;
+
+      if (!raw) {
+        return {
+          success: false,
+
+          error: "Empty response from LLM",
+
+          metadata: {
+            tool: "verify_output",
+          },
+        };
+      }
+
+      let parsed: VerifyData;
+
       try {
-        parsed = JSON.parse(raw);
+        parsed = VerifySchema.parse(JSON.parse(raw));
       } catch {
         parsed = {
           is_valid: false,
@@ -97,25 +232,38 @@ ${criteriaText}
           issues: ["Invalid JSON response"],
           suggestions: [],
           improved_output: output,
+          confidence: 0,
+          error: "Schema parsing failed",
         };
       }
 
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
       return {
-        is_valid: parsed.is_valid ?? false,
-        score: parsed.score ?? 0,
-        issues: parsed.issues ?? [],
-        suggestions: parsed.suggestions ?? [],
-        improved_output: parsed.improved_output ?? output,
-        confidence: 0.9,
+        success: true,
+        data: parsed,
+        metadata: {
+          tool: "verify_output",
+          model: response.model,
+          score: parsed.score,
+          valid: parsed.is_valid,
+          confidence: parsed.confidence,
+          issueCount: parsed.issues.length,
+          executionId: context.runtime.executionId,
+        },
       };
     } catch (error: any) {
       return {
-        is_valid: false,
-        score: 0,
-        issues: [error.message],
-        suggestions: [],
-        improved_output: output,
-        confidence: 0,
+        success: false,
+        error: error?.message || "Unknown verification error",
+        metadata: {
+          tool: "verify_output",
+          executionId: context.runtime.executionId,
+        },
       };
     }
   },

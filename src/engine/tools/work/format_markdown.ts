@@ -1,131 +1,285 @@
 import z from "zod";
-import { chatMessages } from "../../../client/client";
-import { Tool } from "../types";
 import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatMessages } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const FormatMarkdownSchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const FormatMarkdownSchema = z.object({
   markdown: z.string(),
   sections: z.array(z.string()),
   confidence: z.number(),
   error: z.string().optional().nullable(),
 });
 
-export type FormatMarkdownType = z.infer<
-  z.ZodType<typeof FormatMarkdownSchema>
+export type FormatMarkdownData = z.infer<
+  typeof FormatMarkdownSchema
 >;
 
-export const formatMarkdownTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const formatMarkdownName = "formatMarkdownTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const formatMarkdownTool: Tool<FormatMarkdownData> = {
   definition: {
-    name: "format_markdown",
+    name: formatMarkdownName,
     description:
       "Formats raw text into clean, structured, and readable Markdown.",
-
-    intents: ["format"],
-
-    tags: ["markdown", "formatting", "documentation"],
-
-    parameters: {
+    category: ToolCategory.ANALYSIS,
+    capabilities: [
+      "markdown_formatting",
+      "documentation_generation",
+      "text_structuring",
+      "content_cleanup",
+    ],
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 30_000,
+    version: "1.0.0",
+    tags: [
+      "markdown",
+      "formatting",
+      "documentation",
+      "text",
+      "structure",
+    ],
+    inputSchema: {
       type: "object",
       properties: {
         text: {
           type: "string",
-          description: "Raw text to format.",
+          description: "Raw text content to format.",
         },
         style: {
           type: "string",
-          enum: ["simple", "detailed", "documentation"],
+          enum: [
+            "simple",
+            "detailed",
+            "documentation",
+          ],
+          description:
+            "Markdown formatting style preset.",
         },
         include_toc: {
           type: "boolean",
-          description: "Whether to include a table of contents.",
+          description:
+            "Whether to include a table of contents.",
         },
       },
       required: ["text"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
 
-  execute: async (args: any) => {
-    const { text, style = "simple", include_toc = false } = args;
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<FormatMarkdownData>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-    // 🔹 1. 스타일 가이드
-    const styleGuideMap: Record<string, string> = {
-      simple:
-        "Use minimal Markdown formatting. Keep it clean and easy to read.",
-      detailed:
-        "Use rich Markdown formatting including headings, lists, emphasis, and code blocks where appropriate.",
-      documentation:
-        "Format as professional documentation with clear sections, headings, code blocks, and structured layout.",
-    };
+      const nodeInput = context.node.input || {};
+      const text = nodeInput.text;
+      const style = nodeInput.style || "simple";
+      const includeToc =
+        nodeInput.include_toc || false;
 
-    const styleGuide = styleGuideMap[style] || styleGuideMap.simple;
+      if (!text) {
+        return {
+          success: false,
+          error: "Missing required input: text",
+          metadata: {
+            tool: formatMarkdownName,
+          },
+        };
+      }
 
-    // 🔹 2. TOC 옵션
-    const tocInstruction = include_toc
-      ? "Include a table of contents at the top."
-      : "";
+      /**
+       * ------------------------------------------------------
+       * Style Guides
+       * ------------------------------------------------------
+       */
 
-    // 🔹 3. Prompt 구성
-    const prompt = `
-You are a Markdown formatting expert.
+      const styleGuideMap: Record<string, string> = {
+        simple:
+          "Use minimal Markdown formatting. Keep it concise and readable.",
+        detailed:
+          "Use rich Markdown formatting including headings, lists, emphasis, tables, and code blocks when appropriate.",
+        documentation:
+          "Format as professional technical documentation with clear sections, subsections, code blocks, notes, and structured hierarchy.",
+      };
 
-Task:
-Transform the given text into well-structured Markdown.
+      const styleGuide =
+        styleGuideMap[style] ||
+        styleGuideMap.simple;
 
-Instructions:
-- ${styleGuide}
-- Improve readability and structure.
-- Use headings (#, ##, ###) appropriately.
-- Format lists, paragraphs, and sections clearly.
-- Use code blocks if needed.
-- Do not change the original meaning.
+      /**
+       * ------------------------------------------------------
+       * TOC Instruction
+       * ------------------------------------------------------
+       */
 
+      const tocInstruction = includeToc
+        ? "Include a table of contents near the top."
+        : "Do not include a table of contents.";
+
+      /**
+       * ------------------------------------------------------
+       * Prompt
+       * ------------------------------------------------------
+       */
+
+      const systemPrompt = `
+You are an expert Markdown formatter.
+
+Responsibilities:
+1. Improve readability and structure.
+2. Use proper Markdown syntax.
+3. Preserve original meaning.
+4. Organize content into logical sections.
+
+Return ONLY valid JSON.
+      `;
+
+      const userPrompt = `
+Format the following text into Markdown.
+
+[STYLE]
+${style}
+
+[STYLE GUIDE]
+${styleGuide}
+
+[TOC]
 ${tocInstruction}
-
----
 
 [TEXT]
 ${text}
-`;
 
-    try {
+---
+
+Return JSON with:
+
+- markdown
+- sections
+- confidence
+- error
+      `;
+
+      /**
+       * ------------------------------------------------------
+       * Execute LLM Request
+       * ------------------------------------------------------
+       */
+
       const response = await chatMessages(
         [
           {
             role: "system",
-            content:
-              "You are an expert in formatting text into Markdown. Always respond in valid JSON.",
+            content: systemPrompt,
           },
           {
             role: "user",
-            content: prompt,
+            content: userPrompt,
           },
         ],
-        zodResponseFormat(FormatMarkdownSchema, "format_markdown_schema"),
+        zodResponseFormat(
+          FormatMarkdownSchema,
+          "format_markdown_schema",
+        ),
       );
 
-      const raw = response.choices[0]?.message?.content || "{}";
+      /**
+       * ------------------------------------------------------
+       * Parse Response
+       * ------------------------------------------------------
+       */
 
-      let parsed;
+      const raw =
+        response.choices[0]?.message?.content;
+
+      if (!raw) {
+        return {
+          success: false,
+          error: "Empty response from LLM",
+          metadata: {
+            tool: formatMarkdownName,
+          },
+        };
+      }
+
+      let parsed: FormatMarkdownData;
+
       try {
-        parsed = JSON.parse(raw);
+        parsed = FormatMarkdownSchema.parse(
+          JSON.parse(raw),
+        );
       } catch {
         parsed = {
           markdown: raw,
           sections: [],
+          confidence: 0,
+          error: "Schema parsing failed",
         };
       }
 
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
       return {
-        markdown: parsed.markdown || "",
-        sections: parsed.sections || [],
-        confidence: 0.92,
+        success: true,
+        data: parsed,
+        metadata: {
+          tool: formatMarkdownName,
+          model: response.model,
+          style,
+          includeToc,
+          sectionCount:
+            parsed.sections.length,
+          confidence: parsed.confidence,
+          executionId:
+            context.runtime.executionId,
+        },
       };
     } catch (error: any) {
       return {
-        markdown: "",
-        sections: [],
-        confidence: 0,
-        error: error.message,
+        success: false,
+        error:
+          error?.message ||
+          "Unknown markdown formatting error",
+        metadata: {
+          tool: formatMarkdownName,
+          executionId:
+            context.runtime.executionId,
+        },
       };
     }
   },

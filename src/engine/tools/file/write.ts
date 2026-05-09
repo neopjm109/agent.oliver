@@ -1,68 +1,206 @@
 import * as z from "zod";
-import { Tool } from "../types";
-import { safePath } from "../../utils/paths";
-import { dirname } from "path";
-import { mkdir, writeFile } from "fs/promises";
+import { dirname, relative } from "path";
+import { mkdir, writeFile, stat } from "fs/promises";
+import { safePath, ROOT_DIR } from "../../utils/paths";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
+
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
 
 export const WriteFilesSchema = z.object({
   pathname: z
     .string()
-    .describe("Path to the file (relative to root, or absolute within root)"),
-  content: z.string().describe("파일에 작성할 순수 내용만 입력하세요."),
+    .describe(
+      "Path to the file (relative to root or absolute within root)",
+    ),
+  content: z
+    .string()
+    .describe("Raw content to write into the file"),
 });
 
-type WriteFileType = z.infer<typeof WriteFilesSchema>;
-export const writeFileName = "write_file";
+export type WriteFileInput = z.infer<typeof WriteFilesSchema>;
 
-export const writeFileTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Types
+ * ------------------------------------------------------
+ */
+
+export interface WriteFileResult {
+  pathname: string;
+  written: boolean;
+  created: boolean;
+  bytesWritten: number;
+}
+
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const writeFileName = "writeFileTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const writeFileTool: Tool<WriteFileResult> = {
   definition: {
     name: writeFileName,
     description:
-      "Write content to a file. Directories will be created automatically if they don't exist.",
-    intents: ["compute"],
-    tags: ["file", "write", "create"],
-    parameters: {
+      "Writes content to a file and automatically creates missing directories.",
+    category: ToolCategory.FILE_SYSTEM,
+    capabilities: [
+      "filesystem_write",
+      "file_creation",
+      "content_persistence",
+      "directory_creation",
+    ],
+    sideEffects: [SideEffect.FILE_WRITE],
+    retryable: false,
+    timeoutMs: 15_000,
+    version: "1.0.0",
+    tags: [
+      "filesystem",
+      "write",
+      "create",
+      "file",
+      "content",
+    ],
+    inputSchema: {
       type: "object",
       properties: {
         pathname: {
           type: "string",
           description:
-            "Path to the file (relative to root, or absolute within root)",
+            "Target file path relative to the project root.",
         },
         content: {
           type: "string",
-          description: "파일에 작성할 순수 내용만 입력하세요.",
+          description:
+            "Raw content that will be written into the file.",
         },
       },
       required: ["pathname", "content"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
-  execute: async (args: WriteFileType) => {
-    const { pathname, content } = args;
-    if (!pathname)
-      return {
-        status: "failed",
-        reason: "Error: 'pathname' parameter is required",
-      };
-    if (content === undefined)
-      return {
-        status: "failed",
-        reason: "Error: 'content' parameter is required",
-      };
 
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<WriteFileResult>> {
     try {
-      const abs = safePath(pathname); // 보안을 위해 safePath는 유지하세요
-      const dir = dirname(abs); // 파일이 위치할 디렉토리 추출
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-      // 1. 디렉토리 재귀적 생성 (이미 있으면 무시됨)
-      await mkdir(dir, { recursive: true });
+      const nodeInput = context.node.input || {};
+      const pathname = nodeInput.pathname;
+      const content = nodeInput.content;
 
-      // 2. 파일 쓰기
+      if (!pathname) {
+        return {
+          success: false,
+          error: "Missing required input: pathname",
+          metadata: {
+            tool: writeFileName,
+          },
+        };
+      }
+
+      if (content === undefined) {
+        return {
+          success: false,
+          error: "Missing required input: content",
+          metadata: {
+            tool: writeFileName,
+          },
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Resolve Safe Path
+       * ------------------------------------------------------
+       */
+
+      const abs = safePath(pathname);
+      const dir = dirname(abs);
+
+      /**
+       * ------------------------------------------------------
+       * Check Existing File
+       * ------------------------------------------------------
+       */
+
+      const existing = await stat(abs).catch(() => null);
+      const created = !existing;
+
+      /**
+       * ------------------------------------------------------
+       * Ensure Directory Exists
+       * ------------------------------------------------------
+       */
+
+      await mkdir(dir, {
+        recursive: true,
+      });
+
+      /**
+       * ------------------------------------------------------
+       * Write File
+       * ------------------------------------------------------
+       */
+
       await writeFile(abs, content, "utf-8");
 
-      return `Successfully wrote to ${pathname}`;
-    } catch (err: unknown) {
-      return (err as Error).message;
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
+      return {
+        success: true,
+        data: {
+          pathname: relative(ROOT_DIR, abs),
+          written: true,
+          created,
+          bytesWritten: Buffer.byteLength(content, "utf-8"),
+        },
+        metadata: {
+          tool: writeFileName,
+          pathname: abs,
+          created,
+          contentLength: content.length,
+          executionId: context.runtime.executionId,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown write file error",
+        metadata: {
+          tool: writeFileName,
+          executionId: context.runtime.executionId,
+        },
+      };
     }
   },
 };

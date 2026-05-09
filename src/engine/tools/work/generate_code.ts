@@ -1,9 +1,21 @@
 import z from "zod";
-import { chatMessages } from "../../../client/client";
-import { Tool } from "../types";
 import { zodResponseFormat } from "openai/helpers/zod.js";
+import { chatMessages } from "../../client/client";
+import {
+  Tool,
+  ToolCategory,
+  ToolExecutionContext,
+  ToolResult,
+  SideEffect,
+} from "../types";
 
-const GenerateCodeSchema = z.object({
+/**
+ * ------------------------------------------------------
+ * Schema
+ * ------------------------------------------------------
+ */
+
+export const GenerateCodeSchema = z.object({
   code: z.string(),
   tests: z.string(),
   explanation: z.string(),
@@ -11,134 +23,330 @@ const GenerateCodeSchema = z.object({
   error: z.string().optional().nullable(),
 });
 
-export type GenerateCodeType = z.infer<z.ZodType<typeof GenerateCodeSchema>>;
+export type GenerateCodeData = z.infer<
+  typeof GenerateCodeSchema
+>;
 
-export const generateCodeTool: Tool = {
+/**
+ * ------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------
+ */
+
+export const generateCodeName = "generateCodeTool";
+
+/**
+ * ------------------------------------------------------
+ * Tool
+ * ------------------------------------------------------
+ */
+
+export const generateCodeTool: Tool<GenerateCodeData> = {
   definition: {
-    name: "generate_code",
+    name: generateCodeName,
     description:
-      "Generates code based on a given requirement with optional style and explanation.",
+      "Generates source code from requirements with optional tests and explanations.",
+    category: ToolCategory.LLM,
+    capabilities: [
+      "code_generation",
+      "test_generation",
+      "software_engineering",
+      "code_explanation",
+      "multi_language_programming",
+    ],
+    sideEffects: [SideEffect.NETWORK_CALL],
+    retryable: true,
+    timeoutMs: 60_000,
+    version: "1.0.0",
+    tags: [
+      "code",
+      "generation",
+      "development",
+      "programming",
+      "llm",
+    ],
 
-    intents: ["generate"],
-
-    tags: ["code", "development", "programming"],
-
-    parameters: {
+    inputSchema: {
       type: "object",
       properties: {
         requirement: {
           type: "string",
-          description: "Description of what the code should do.",
+          description:
+            "Description of the functionality to implement.",
         },
         language: {
           type: "string",
-          description: "Programming language (e.g., TypeScript, Python).",
+          description:
+            "Programming language such as TypeScript, Java, or Python.",
         },
         style: {
           type: "string",
-          enum: ["clean", "optimized", "minimal"],
+          enum: [
+            "clean",
+            "optimized",
+            "minimal",
+          ],
+          description:
+            "Preferred coding style.",
         },
         include_tests: {
           type: "boolean",
-          description: "Whether to include test code.",
+          description:
+            "Whether to generate test code.",
         },
         include_explanation: {
           type: "boolean",
-          description: "Whether to include explanation.",
+          description:
+            "Whether to generate implementation explanations.",
         },
       },
       required: ["requirement", "language"],
     },
+    outputSchema: {
+      type: "object",
+    },
   },
 
-  execute: async (args: any) => {
-    const {
-      requirement,
-      language,
-      style = "clean",
-      include_tests = false,
-      include_explanation = false,
-    } = args;
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<GenerateCodeData>> {
+    try {
+      /**
+       * ------------------------------------------------------
+       * Extract Input
+       * ------------------------------------------------------
+       */
 
-    // 🔹 1. 스타일 가이드
-    const styleGuideMap: Record<string, string> = {
-      clean:
-        "Write clean, readable, and well-structured code following best practices.",
-      optimized:
-        "Write optimized and efficient code with performance considerations.",
-      minimal: "Write minimal code with only essential logic.",
-    };
+      const nodeInput = context.node.input || {};
+      const requirement =
+        nodeInput.requirement;
+      const language = nodeInput.language;
+      const style =
+        nodeInput.style || "clean";
+      const includeTests =
+        nodeInput.include_tests || false;
+      const includeExplanation =
+        nodeInput.include_explanation ||
+        false;
 
-    const styleGuide = styleGuideMap[style] || styleGuideMap.clean;
+      if (!requirement) {
+        return {
+          success: false,
+          error:
+            "Missing required input: requirement",
+          metadata: {
+            tool: generateCodeName,
+          },
+        };
+      }
 
-    // 🔹 2. 테스트 요구사항
-    const testInstruction = include_tests ? `Also include test code.` : "";
+      if (!language) {
+        return {
+          success: false,
+          error:
+            "Missing required input: language",
+          metadata: {
+            tool: generateCodeName,
+          },
+        };
+      }
 
-    // 🔹 3. 설명 요구사항
-    const explanationInstruction = include_explanation
-      ? `Also include a clear explanation of the code.`
-      : "";
+      /**
+       * ------------------------------------------------------
+       * Style Guides
+       * ------------------------------------------------------
+       */
 
-    // 🔹 4. Prompt 구성
-    const prompt = `
+      const styleGuideMap: Record<
+        string,
+        string
+      > = {
+        clean:
+          "Write clean, readable, maintainable, and production-quality code following best practices.",
+
+        optimized:
+          "Write optimized and performant code while preserving readability and maintainability.",
+
+        minimal:
+          "Write concise code with only essential logic and minimal abstraction.",
+      };
+
+      const styleGuide =
+        styleGuideMap[style] ||
+        styleGuideMap.clean;
+
+      /**
+       * ------------------------------------------------------
+       * Optional Instructions
+       * ------------------------------------------------------
+       */
+
+      const testInstruction =
+        includeTests
+          ? `
+Also generate relevant test code.
+`
+          : "";
+
+      const explanationInstruction =
+        includeExplanation
+          ? `
+Also generate a detailed explanation of the implementation.
+`
+          : "";
+
+      /**
+       * ------------------------------------------------------
+       * Prompt
+       * ------------------------------------------------------
+       */
+
+      const systemPrompt = `
 You are a senior software engineer.
 
-Task:
+Responsibilities:
+1. Generate correct and production-ready code.
+2. Follow best practices.
+3. Use appropriate naming and architecture.
+4. Generate tests and explanations if requested.
+
+Return ONLY valid JSON.
+      `;
+
+      const userPrompt = `
 Generate ${language} code.
 
-Requirement:
+[REQUIREMENT]
 ${requirement}
 
-Instructions:
-- ${styleGuide}
-- Ensure the code is correct and runnable.
-- Use appropriate naming and structure.
-${testInstruction}
-${explanationInstruction}
-`;
+[STYLE]
+${style}
 
-    try {
+[STYLE GUIDE]
+${styleGuide}
+
+${testInstruction}
+
+${explanationInstruction}
+
+---
+
+Return JSON with:
+
+- code
+- tests
+- explanation
+- confidence
+- error
+      `;
+
+      /**
+       * ------------------------------------------------------
+       * Execute LLM Request
+       * ------------------------------------------------------
+       */
+
       const response = await chatMessages(
         [
           {
             role: "system",
-            content:
-              "You are a highly skilled software engineer. Always respond in valid JSON.",
+            content: systemPrompt,
           },
           {
             role: "user",
-            content: prompt,
+            content: userPrompt,
           },
         ],
-        zodResponseFormat(GenerateCodeSchema, "generate_code_schema"),
+        zodResponseFormat(
+          GenerateCodeSchema,
+          "generate_code_schema",
+        ),
       );
 
-      const text = response.choices[0]?.message?.content || "{}";
+      /**
+       * ------------------------------------------------------
+       * Parse Response
+       * ------------------------------------------------------
+       */
 
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = {
-          code: text,
-          tests: "",
-          explanation: "",
+      const raw =
+        response.choices[0]?.message?.content;
+
+      if (!raw) {
+        return {
+          success: false,
+          error: "Empty response from LLM",
+          metadata: {
+            tool: generateCodeName,
+          },
         };
       }
 
+      let parsed: GenerateCodeData;
+
+      try {
+        parsed = GenerateCodeSchema.parse(
+          JSON.parse(raw),
+        );
+      } catch {
+        parsed = {
+          code: raw,
+          tests: "",
+          explanation: "",
+          confidence: 0,
+          error: "Schema parsing failed",
+        };
+      }
+
+      /**
+       * ------------------------------------------------------
+       * Return Structured Result
+       * ------------------------------------------------------
+       */
+
       return {
-        code: parsed.code || "",
-        tests: include_tests ? parsed.tests || "" : "",
-        explanation: include_explanation ? parsed.explanation || "" : "",
-        confidence: 0.9,
+        success: true,
+        data: {
+          code: parsed.code || "",
+          tests: includeTests
+            ? parsed.tests || ""
+            : "",
+          explanation:
+            includeExplanation
+              ? parsed.explanation || ""
+              : "",
+          confidence:
+            parsed.confidence || 0,
+          error: parsed.error,
+        },
+        metadata: {
+          tool: generateCodeName,
+          model: response.model,
+          language,
+          style,
+          includeTests,
+          includeExplanation,
+          codeLength:
+            parsed.code?.length || 0,
+          testLength:
+            parsed.tests?.length || 0,
+          confidence:
+            parsed.confidence,
+          executionId:
+            context.runtime.executionId,
+        },
       };
     } catch (error: any) {
       return {
-        code: "",
-        tests: "",
-        explanation: "",
-        confidence: 0,
-        error: error.message,
+        success: false,
+        error:
+          error?.message ||
+          "Unknown code generation error",
+        metadata: {
+          tool: generateCodeName,
+          executionId:
+            context.runtime.executionId,
+        },
       };
     }
   },

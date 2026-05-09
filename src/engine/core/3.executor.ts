@@ -1,20 +1,28 @@
+import { randomUUID } from "node:crypto";
+import { Tool, ToolDefinition } from "../tools/types";
 import { ReactiveGraphMutationEngine } from "./4.mutation";
-import { ActionNode } from "./types";
+import { ActionGraph, ActionNode, RuntimeContext } from "./types";
 
 export class ActionExecutor {
   constructor(
-    private toolRouter: ToolRouter,
+    private graph: ActionGraph,
+    private toolExecutor: ToolExecutor,
     private mutationEngine?: ReactiveGraphMutationEngine,
   ) {}
 
   async execute(node: ActionNode): Promise<any> {
     try {
+      const runtime: RuntimeContext = {
+        graphId: this.graph.id,
+        executionId: randomUUID(),
+        startedAt: new Date().getTime()
+      }
       node.status = "running";
 
-      const result = await this.toolRouter.route(node);
+      const result = await this.toolExecutor.execute(node, this.graph, runtime);
 
       node.output = result;
-      node.status = "success";
+      node.status = "completed";
 
       // 🔥 핵심: mutation trigger
       this.mutationEngine?.onNodeCompleted(node);
@@ -31,48 +39,41 @@ export class ActionExecutor {
   }
 }
 
-export class ToolRouter {
-  constructor(private toolExecutor: ToolExecutor) {}
-
-  async route(node: ActionNode): Promise<any> {
-    const toolName = node.tool;
-
-    // 1. 기본 routing
-    const tool = this.selectTool(toolName, node);
-
-    // 2. 실행
-    return await this.toolExecutor.execute(tool, node.input);
-  }
-
-  private selectTool(toolName: string, node: ActionNode) {
-    // future: fallback / variant selection / dynamic routing
-
-    return toolName;
-  }
-}
-
 export class ToolExecutor {
   constructor(private registry: ToolRegistry) {}
 
-  async execute(toolName: string, input: any): Promise<any> {
-    const tool = this.registry.get(toolName);
+  async execute(node: ActionNode, graph: ActionGraph, runtime: RuntimeContext): Promise<any> {
+    const tool = this.registry.get(node.tool);
 
     if (!tool) {
-      throw new Error(`Tool not found: ${toolName}`);
+      throw new Error(`Tool not found: ${node.tool}`);
     }
 
-    return await tool.run(input);
+    return await tool.execute({ node, graph, runtime });
   }
 }
 
 export class ToolRegistry {
-  private tools = new Map<string, any>();
+  private tools = new Map<string, Tool>();
 
-  register(name: string, tool: any) {
-    this.tools.set(name, tool);
+  register(tool: Tool) {
+    this.tools.set(tool.definition.name, tool);
   }
 
-  get(name: string) {
-    return this.tools.get(name);
+  get(toolId: string): Tool | undefined {
+    return this.tools.get(toolId);
+  }
+
+  has(toolId: string): boolean {
+    return this.tools.has(toolId);
+  }
+
+  remove(toolId: string) {
+    this.tools.delete(toolId);
+  }
+
+  list(): ToolDefinition[] {
+    return Array.from(this.tools.values())
+      .map(t => t.definition);
   }
 }
