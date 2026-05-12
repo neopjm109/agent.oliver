@@ -10,28 +10,12 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const MoveFilesSchema = z.object({
-  source: z
-    .string()
-    .describe("Original path of the file or directory"),
-  destination: z
-    .string()
-    .describe("Target path for the file or directory"),
+  source: z.string().describe("Original path of the file or directory"),
+  destination: z.string().describe("Target path for the file or directory"),
 });
 
 export type MoveFileInput = z.infer<typeof MoveFilesSchema>;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
 
 export interface MoveFileResult {
   source: string;
@@ -40,25 +24,12 @@ export interface MoveFileResult {
   type: "file" | "dir";
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const moveFileName = "moveFileTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const moveFileTool: Tool<MoveFileResult> = {
   definition: {
     name: moveFileName,
-    description:
-      "Moves or renames a file or directory to a new target path.",
+    description: "Moves or renames a file or directory to a new target path.",
     category: ToolCategory.FILE_SYSTEM,
     capabilities: [
       "filesystem_write",
@@ -66,10 +37,7 @@ export const moveFileTool: Tool<MoveFileResult> = {
       "file_rename",
       "directory_move",
     ],
-    sideEffects: [
-      SideEffect.FILE_WRITE,
-      SideEffect.FILE_DELETE,
-    ],
+    sideEffects: [SideEffect.FILE_WRITE, SideEffect.FILE_DELETE],
     retryable: false,
     timeoutMs: 15_000,
     version: "1.0.0",
@@ -79,13 +47,11 @@ export const moveFileTool: Tool<MoveFileResult> = {
       properties: {
         source: {
           type: "string",
-          description:
-            "Original path of the file or directory.",
+          description: "Original path of the file or directory.",
         },
         destination: {
           type: "string",
-          description:
-            "New target path for the file or directory.",
+          description: "New target path for the file or directory.",
         },
       },
       required: ["source", "destination"],
@@ -99,12 +65,6 @@ export const moveFileTool: Tool<MoveFileResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<MoveFileResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const source = nodeInput.source;
       const destination = nodeInput.destination;
@@ -112,28 +72,15 @@ export const moveFileTool: Tool<MoveFileResult> = {
       if (!source || !destination) {
         return {
           success: false,
-          error:
-            "Missing required input: source or destination",
+          error: "Missing required input: source or destination",
           metadata: {
             tool: moveFileName,
           },
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Resolve Safe Paths
-       * ------------------------------------------------------
-       */
-
       const sourceAbs = safePath(source);
       const destinationAbs = safePath(destination);
-
-      /**
-       * ------------------------------------------------------
-       * Validate Source
-       * ------------------------------------------------------
-       */
 
       const sourceInfo = await stat(sourceAbs).catch(() => null);
 
@@ -147,31 +94,13 @@ export const moveFileTool: Tool<MoveFileResult> = {
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Create Target Directory
-       * ------------------------------------------------------
-       */
-
       const targetDir = dirname(destinationAbs);
 
       await mkdir(targetDir, {
         recursive: true,
       });
 
-      /**
-       * ------------------------------------------------------
-       * Move / Rename
-       * ------------------------------------------------------
-       */
-
       await rename(sourceAbs, destinationAbs);
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

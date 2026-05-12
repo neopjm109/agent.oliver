@@ -2,18 +2,7 @@ import * as z from "zod";
 import { readdir, stat } from "fs/promises";
 import { join, relative } from "path";
 import { ROOT_DIR, safePath } from "../../utils/paths";
-import {
-  Tool,
-  ToolCategory,
-  ToolExecutionContext,
-  ToolResult,
-} from "../types";
-
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
+import { Tool, ToolCategory, ToolExecutionContext, ToolResult } from "../types";
 
 export const ListFilesSchema = z.object({
   pathname: z.string().describe("조회할 디렉토리 경로"),
@@ -24,12 +13,6 @@ export const ListFilesSchema = z.object({
 });
 
 export type ListFilesInput = z.infer<typeof ListFilesSchema>;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
 
 export interface FileEntry {
   name: string;
@@ -46,19 +29,7 @@ export interface ListFilesResult {
   files: FileEntry[];
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const listFilesName = "listFilesTool";
-
-/**
- * ------------------------------------------------------
- * Helpers
- * ------------------------------------------------------
- */
 
 async function scanDirectory(
   dir: string,
@@ -92,23 +63,13 @@ async function scanDirectory(
   return results;
 }
 
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
-
 export const listFilesTool: Tool<ListFilesResult> = {
   definition: {
     name: listFilesName,
     description:
       "Lists files and directories from the local filesystem with optional recursive traversal.",
     category: ToolCategory.FILE_SYSTEM,
-    capabilities: [
-      "filesystem_access",
-      "directory_listing",
-      "recursive_scan",
-    ],
+    capabilities: ["filesystem_access", "directory_listing", "recursive_scan"],
     retryable: true,
     timeoutMs: 15_000,
     version: "1.0.0",
@@ -122,8 +83,7 @@ export const listFilesTool: Tool<ListFilesResult> = {
         },
         recursive: {
           type: "boolean",
-          description:
-            "Whether to recursively scan subdirectories.",
+          description: "Whether to recursively scan subdirectories.",
         },
       },
       required: ["pathname"],
@@ -138,37 +98,13 @@ export const listFilesTool: Tool<ListFilesResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<ListFilesResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const pathname = nodeInput.pathname || ".";
       const recursive = nodeInput.recursive ?? true;
 
-      /**
-       * ------------------------------------------------------
-       * Validate Path
-       * ------------------------------------------------------
-       */
-
       const dir = safePath(pathname);
 
-      /**
-       * ------------------------------------------------------
-       * Scan Directory
-       * ------------------------------------------------------
-       */
-
       const files = await scanDirectory(dir, recursive);
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

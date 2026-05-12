@@ -2,45 +2,20 @@ import * as z from "zod";
 
 import vm from "node:vm";
 
-import {
-  Tool,
-  ToolCategory,
-  ToolExecutionContext,
-  ToolResult,
-} from "../types";
-
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
+import { Tool, ToolCategory, ToolExecutionContext, ToolResult } from "../types";
 
 export const CalculateSchema = z.object({
-  expression: z
-    .string()
-    .describe(
-      "Mathematical expression to evaluate",
-    ),
+  expression: z.string().describe("Mathematical expression to evaluate"),
 
   precision: z
     .number()
     .min(0)
     .max(15)
     .optional()
-    .describe(
-      "Optional decimal precision for the result",
-    ),
+    .describe("Optional decimal precision for the result"),
 });
 
-export type CalculateInput = z.infer<
-  typeof CalculateSchema
->;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
+export type CalculateInput = z.infer<typeof CalculateSchema>;
 
 export interface CalculateResult {
   expression: string;
@@ -54,19 +29,7 @@ export interface CalculateResult {
   durationMs: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const calculateToolName = "calculateTool";
-
-/**
- * ------------------------------------------------------
- * Allowed Math Functions
- * ------------------------------------------------------
- */
 
 const SAFE_MATH_CONTEXT = {
   Math,
@@ -99,15 +62,7 @@ const SAFE_MATH_CONTEXT = {
   E: Math.E,
 };
 
-/**
- * ------------------------------------------------------
- * Security Validation
- * ------------------------------------------------------
- */
-
-function validateExpression(
-  expression: string,
-) {
+function validateExpression(expression: string) {
   /**
    * Allow:
    * - numbers
@@ -119,18 +74,11 @@ function validateExpression(
    * - letters for safe math funcs
    */
 
-  const allowed =
-    /^[0-9+\-*/%().,\s_a-zA-Z]+$/;
+  const allowed = /^[0-9+\-*/%().,\s_a-zA-Z]+$/;
 
   if (!allowed.test(expression)) {
-    throw new Error(
-      "Expression contains unsupported characters",
-    );
+    throw new Error("Expression contains unsupported characters");
   }
-
-  /**
-   * Block dangerous keywords
-   */
 
   const blockedKeywords = [
     "process",
@@ -149,233 +97,123 @@ function validateExpression(
 
   for (const keyword of blockedKeywords) {
     if (lower.includes(keyword.toLowerCase())) {
-      throw new Error(
-        `Blocked keyword detected: ${keyword}`,
-      );
+      throw new Error(`Blocked keyword detected: ${keyword}`);
     }
   }
 }
 
-/**
- * ------------------------------------------------------
- * Safe Evaluation
- * ------------------------------------------------------
- */
-
-function evaluateExpression(
-  expression: string,
-): number {
+function evaluateExpression(expression: string): number {
   validateExpression(expression);
 
-  const context =
-    vm.createContext(SAFE_MATH_CONTEXT);
+  const context = vm.createContext(SAFE_MATH_CONTEXT);
 
   const script = new vm.Script(expression);
 
-  const result = script.runInContext(
-    context,
-    {
-      timeout: 1000,
-    },
-  );
+  const result = script.runInContext(context, {
+    timeout: 1000,
+  });
 
   if (typeof result !== "number") {
-    throw new Error(
-      "Expression did not evaluate to a number",
-    );
+    throw new Error("Expression did not evaluate to a number");
   }
 
   if (!Number.isFinite(result)) {
-    throw new Error(
-      "Result is not a finite number",
-    );
+    throw new Error("Result is not a finite number");
   }
 
   return result;
 }
 
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
-
-const calculateTool: Tool<CalculateResult> =
-  {
-    definition: {
-      name: calculateToolName,
-
-      description:
-        "Safely evaluates mathematical expressions and returns numeric results.",
-
-      category: ToolCategory.EXECUTION,
-
-      capabilities: [
-        "math_evaluation",
-        "arithmetic",
-        "scientific_calculation",
-        "expression_parsing",
-      ],
-
-      retryable: true,
-
-      timeoutMs: 3_000,
-
-      version: "1.0.0",
-
-      tags: [
-        "math",
-        "calculation",
-        "compute",
-        "scientific",
-        "expression",
-      ],
-
-      inputSchema: {
-        type: "object",
-
-        properties: {
-          expression: {
-            type: "string",
-
-            description:
-              "Mathematical expression to evaluate.",
-          },
-
-          precision: {
-            type: "number",
-
-            description:
-              "Optional decimal precision.",
-          },
+const calculateTool: Tool<CalculateResult> = {
+  definition: {
+    name: calculateToolName,
+    description:
+      "Safely evaluates mathematical expressions and returns numeric results.",
+    category: ToolCategory.EXECUTION,
+    capabilities: [
+      "math_evaluation",
+      "arithmetic",
+      "scientific_calculation",
+      "expression_parsing",
+    ],
+    retryable: true,
+    timeoutMs: 3_000,
+    version: "1.0.0",
+    tags: ["math", "calculation", "compute", "scientific", "expression"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        expression: {
+          type: "string",
+          description: "Mathematical expression to evaluate.",
         },
-
-        required: ["expression"],
+        precision: {
+          type: "number",
+          description: "Optional decimal precision.",
+        },
       },
-
-      outputSchema: {
-        type: "object",
-      },
+      required: ["expression"],
     },
+    outputSchema: {
+      type: "object",
+    },
+  },
 
-    async execute(
-      context: ToolExecutionContext,
-    ): Promise<
-      ToolResult<CalculateResult>
-    > {
-      const startedAt = Date.now();
+  async execute(
+    context: ToolExecutionContext,
+  ): Promise<ToolResult<CalculateResult>> {
+    const startedAt = Date.now();
 
-      try {
-        /**
-         * ------------------------------------------------------
-         * Extract Input
-         * ------------------------------------------------------
-         */
+    try {
+      const nodeInput = context.node.input || {};
+      const expression = nodeInput.expression;
+      const precision = nodeInput.precision;
 
-        const nodeInput =
-          context.node.input || {};
-
-        const expression =
-          nodeInput.expression;
-
-        const precision =
-          nodeInput.precision;
-
-        if (!expression) {
-          return {
-            success: false,
-
-            error:
-              "Missing required input: expression",
-
-            metadata: {
-              tool: calculateToolName,
-            },
-          };
-        }
-
-        /**
-         * ------------------------------------------------------
-         * Evaluate
-         * ------------------------------------------------------
-         */
-
-        let result =
-          evaluateExpression(expression);
-
-        /**
-         * ------------------------------------------------------
-         * Precision Handling
-         * ------------------------------------------------------
-         */
-
-        let formatted =
-          result.toString();
-
-        if (
-          precision !== undefined &&
-          Number.isInteger(precision)
-        ) {
-          result = Number(
-            result.toFixed(precision),
-          );
-
-          formatted =
-            result.toFixed(precision);
-        }
-
-        /**
-         * ------------------------------------------------------
-         * Return Structured Result
-         * ------------------------------------------------------
-         */
-
-        return {
-          success: true,
-
-          data: {
-            expression,
-
-            result,
-
-            formatted,
-
-            precision,
-
-            durationMs:
-              Date.now() - startedAt,
-          },
-
-          metadata: {
-            tool: calculateToolName,
-
-            executionId:
-              context.runtime.executionId,
-
-            durationMs:
-              Date.now() - startedAt,
-          },
-        };
-      } catch (error: any) {
+      if (!expression) {
         return {
           success: false,
-
-          error:
-            error?.message ||
-            "Unknown calculation error",
-
+          error: "Missing required input: expression",
           metadata: {
             tool: calculateToolName,
-
-            executionId:
-              context.runtime.executionId,
-
-            durationMs:
-              Date.now() - startedAt,
           },
         };
       }
-    },
-  };
+
+      let result = evaluateExpression(expression);
+      let formatted = result.toString();
+
+      if (precision !== undefined && Number.isInteger(precision)) {
+        result = Number(result.toFixed(precision));
+        formatted = result.toFixed(precision);
+      }
+
+      return {
+        success: true,
+        data: {
+          expression,
+          result,
+          formatted,
+          precision,
+          durationMs: Date.now() - startedAt,
+        },
+        metadata: {
+          tool: calculateToolName,
+          executionId: context.runtime.executionId,
+          durationMs: Date.now() - startedAt,
+        },
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || "Unknown calculation error",
+        metadata: {
+          tool: calculateToolName,
+          executionId: context.runtime.executionId,
+          durationMs: Date.now() - startedAt,
+        },
+      };
+    }
+  },
+};
 
 export default calculateTool;

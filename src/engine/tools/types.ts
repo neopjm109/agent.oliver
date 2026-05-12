@@ -100,7 +100,7 @@ export interface ToolDefinition {
  */
 
 export type ToolFunction<T = any> = (
-  context: ToolExecutionContext
+  args: ToolExecutionContext,
 ) => Promise<ToolResult<T>>;
 
 /**

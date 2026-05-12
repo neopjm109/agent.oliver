@@ -9,12 +9,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const GenerateCodeSchema = z.object({
   code: z.string(),
   tests: z.string(),
@@ -23,23 +17,9 @@ export const GenerateCodeSchema = z.object({
   error: z.string().optional().nullable(),
 });
 
-export type GenerateCodeData = z.infer<
-  typeof GenerateCodeSchema
->;
-
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
+export type GenerateCodeData = z.infer<typeof GenerateCodeSchema>;
 
 export const generateCodeName = "generateCodeTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const generateCodeTool: Tool<GenerateCodeData> = {
   definition: {
@@ -58,21 +38,14 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
     retryable: true,
     timeoutMs: 60_000,
     version: "1.0.0",
-    tags: [
-      "code",
-      "generation",
-      "development",
-      "programming",
-      "llm",
-    ],
+    tags: ["code", "generation", "development", "programming", "llm"],
 
     inputSchema: {
       type: "object",
       properties: {
         requirement: {
           type: "string",
-          description:
-            "Description of the functionality to implement.",
+          description: "Description of the functionality to implement.",
         },
         language: {
           type: "string",
@@ -81,23 +54,16 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
         },
         style: {
           type: "string",
-          enum: [
-            "clean",
-            "optimized",
-            "minimal",
-          ],
-          description:
-            "Preferred coding style.",
+          enum: ["clean", "optimized", "minimal"],
+          description: "Preferred coding style.",
         },
         include_tests: {
           type: "boolean",
-          description:
-            "Whether to generate test code.",
+          description: "Whether to generate test code.",
         },
         include_explanation: {
           type: "boolean",
-          description:
-            "Whether to generate implementation explanations.",
+          description: "Whether to generate implementation explanations.",
         },
       },
       required: ["requirement", "language"],
@@ -118,22 +84,16 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
        */
 
       const nodeInput = context.node.input || {};
-      const requirement =
-        nodeInput.requirement;
-      const language = nodeInput.language;
-      const style =
-        nodeInput.style || "clean";
-      const includeTests =
-        nodeInput.include_tests || false;
-      const includeExplanation =
-        nodeInput.include_explanation ||
-        false;
+      const requirement = nodeInput.requirement;
+      const language = nodeInput.language || "typescript";
+      const style = nodeInput.style || "clean";
+      const includeTests = nodeInput.include_tests || false;
+      const includeExplanation = nodeInput.include_explanation || false;
 
       if (!requirement) {
         return {
           success: false,
-          error:
-            "Missing required input: requirement",
+          error: "Missing required input: requirement",
           metadata: {
             tool: generateCodeName,
           },
@@ -143,8 +103,7 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
       if (!language) {
         return {
           success: false,
-          error:
-            "Missing required input: language",
+          error: "Missing required input: language",
           metadata: {
             tool: generateCodeName,
           },
@@ -157,10 +116,7 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
        * ------------------------------------------------------
        */
 
-      const styleGuideMap: Record<
-        string,
-        string
-      > = {
+      const styleGuideMap: Record<string, string> = {
         clean:
           "Write clean, readable, maintainable, and production-quality code following best practices.",
 
@@ -171,9 +127,7 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
           "Write concise code with only essential logic and minimal abstraction.",
       };
 
-      const styleGuide =
-        styleGuideMap[style] ||
-        styleGuideMap.clean;
+      const styleGuide = styleGuideMap[style] || styleGuideMap.clean;
 
       /**
        * ------------------------------------------------------
@@ -181,19 +135,17 @@ export const generateCodeTool: Tool<GenerateCodeData> = {
        * ------------------------------------------------------
        */
 
-      const testInstruction =
-        includeTests
-          ? `
+      const testInstruction = includeTests
+        ? `
 Also generate relevant test code.
 `
-          : "";
+        : "";
 
-      const explanationInstruction =
-        includeExplanation
-          ? `
+      const explanationInstruction = includeExplanation
+        ? `
 Also generate a detailed explanation of the implementation.
 `
-          : "";
+        : "";
 
       /**
        * ------------------------------------------------------
@@ -257,10 +209,7 @@ Return JSON with:
             content: userPrompt,
           },
         ],
-        zodResponseFormat(
-          GenerateCodeSchema,
-          "generate_code_schema",
-        ),
+        zodResponseFormat(GenerateCodeSchema, "generate_code_schema"),
       );
 
       /**
@@ -269,8 +218,7 @@ Return JSON with:
        * ------------------------------------------------------
        */
 
-      const raw =
-        response.choices[0]?.message?.content;
+      const raw = response.choices[0]?.message?.content;
 
       if (!raw) {
         return {
@@ -285,9 +233,7 @@ Return JSON with:
       let parsed: GenerateCodeData;
 
       try {
-        parsed = GenerateCodeSchema.parse(
-          JSON.parse(raw),
-        );
+        parsed = GenerateCodeSchema.parse(JSON.parse(raw));
       } catch {
         parsed = {
           code: raw,
@@ -308,15 +254,9 @@ Return JSON with:
         success: true,
         data: {
           code: parsed.code || "",
-          tests: includeTests
-            ? parsed.tests || ""
-            : "",
-          explanation:
-            includeExplanation
-              ? parsed.explanation || ""
-              : "",
-          confidence:
-            parsed.confidence || 0,
+          tests: includeTests ? parsed.tests || "" : "",
+          explanation: includeExplanation ? parsed.explanation || "" : "",
+          confidence: parsed.confidence || 0,
           error: parsed.error,
         },
         metadata: {
@@ -326,26 +266,19 @@ Return JSON with:
           style,
           includeTests,
           includeExplanation,
-          codeLength:
-            parsed.code?.length || 0,
-          testLength:
-            parsed.tests?.length || 0,
-          confidence:
-            parsed.confidence,
-          executionId:
-            context.runtime.executionId,
+          codeLength: parsed.code?.length || 0,
+          testLength: parsed.tests?.length || 0,
+          confidence: parsed.confidence,
+          executionId: context.runtime.executionId,
         },
       };
     } catch (error: any) {
       return {
         success: false,
-        error:
-          error?.message ||
-          "Unknown code generation error",
+        error: error?.message || "Unknown code generation error",
         metadata: {
           tool: generateCodeName,
-          executionId:
-            context.runtime.executionId,
+          executionId: context.runtime.executionId,
         },
       };
     }

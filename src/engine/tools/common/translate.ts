@@ -9,12 +9,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const TranslateSchema = z.object({
   translation: z.string(),
   explanation: z.object({
@@ -27,19 +21,7 @@ export const TranslateSchema = z.object({
 
 export type TranslateData = z.infer<typeof TranslateSchema>;
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const translateToolName = "translateTool";
-
-/**
- * ------------------------------------------------------
- * Translate Tool
- * ------------------------------------------------------
- */
 
 export const translateTool: Tool<TranslateData> = {
   definition: {
@@ -58,13 +40,7 @@ export const translateTool: Tool<TranslateData> = {
     retryable: true,
     timeoutMs: 30_000,
     version: "1.0.0",
-    tags: [
-      "translation",
-      "language",
-      "education",
-      "multilingual",
-      "nlp",
-    ],
+    tags: ["translation", "language", "education", "multilingual", "nlp"],
     inputSchema: {
       type: "object",
       properties: {
@@ -100,12 +76,6 @@ export const translateTool: Tool<TranslateData> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<TranslateData>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const text = nodeInput.text;
       const target = nodeInput.target;
@@ -131,12 +101,6 @@ export const translateTool: Tool<TranslateData> = {
           },
         };
       }
-
-      /**
-       * ------------------------------------------------------
-       * Prompt
-       * ------------------------------------------------------
-       */
 
       const systemPrompt = `
 You are a professional translator and language teacher.
@@ -178,12 +142,6 @@ If mode is "explain", also include:
 - confidence
       `;
 
-      /**
-       * ------------------------------------------------------
-       * Execute LLM Request
-       * ------------------------------------------------------
-       */
-
       const response = await chatMessages(
         [
           {
@@ -198,12 +156,6 @@ If mode is "explain", also include:
         zodResponseFormat(TranslateSchema, "translate_schema"),
       );
 
-      /**
-       * ------------------------------------------------------
-       * Parse Response
-       * ------------------------------------------------------
-       */
-
       const raw = response.choices[0]?.message?.content;
 
       if (!raw) {
@@ -217,12 +169,6 @@ If mode is "explain", also include:
       }
 
       const parsed = TranslateSchema.parse(JSON.parse(raw));
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

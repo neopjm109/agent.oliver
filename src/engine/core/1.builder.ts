@@ -7,34 +7,18 @@ export class GraphBuilder {
 
   build(intent: string, input: any): ActionGraph {
     const { nodes, edges } = this.registry.get(intent);
-    const nodeMap = new Map<string, ActionNode>();
-
-    for (const node of nodes) {
-      nodeMap.set(node.id, {
-        ...node,
-        status: "pending",
-        retryCount: 0,
-        input: this.resolveInput(node, input),
-      });
-    }
-
-    // 2. graph 생성
     const graph: ActionGraph = {
       id: randomUUID(),
       intent,
-      nodes: nodeMap,
+      nodes,
       edges,
       input,
+      state: {
+        phase: "initial",
+        result: {},
+      },
     };
 
     return graph;
-  }
-  
-  private resolveInput(node: ActionNode, input: any) {
-    if (node.id === "respond") {
-      return { input };
-    }
-
-    return input;
   }
 }

@@ -9,12 +9,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const SummarizeSchema = z.object({
   summary: z.string(),
   key_points: z.array(z.string()),
@@ -27,12 +21,6 @@ export const SummarizeSchema = z.object({
 });
 
 export type SummarizeData = z.infer<typeof SummarizeSchema>;
-
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
 
 export const summarizeToolName = "summarizeTool";
 
@@ -58,13 +46,7 @@ export const summarizeTool: Tool<SummarizeData> = {
     retryable: true,
     timeoutMs: 45_000,
     version: "1.0.0",
-    tags: [
-      "summary",
-      "compression",
-      "memory",
-      "analysis",
-      "optimization",
-    ],
+    tags: ["summary", "compression", "memory", "analysis", "optimization"],
     inputSchema: {
       type: "object",
       properties: {
@@ -100,12 +82,6 @@ export const summarizeTool: Tool<SummarizeData> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<SummarizeData>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const text = nodeInput.text;
       const maxLength = nodeInput.maxLength;
@@ -121,12 +97,6 @@ export const summarizeTool: Tool<SummarizeData> = {
           },
         };
       }
-
-      /**
-       * ------------------------------------------------------
-       * Prompt
-       * ------------------------------------------------------
-       */
 
       const systemPrompt = `
 You are an expert AI system that summarizes long text into a compact and structured representation optimized for downstream graph reasoning and memory reuse.
@@ -165,12 +135,6 @@ Return JSON with:
 - confidence
       `;
 
-      /**
-       * ------------------------------------------------------
-       * Execute LLM Request
-       * ------------------------------------------------------
-       */
-
       const response = await chatMessages(
         [
           {
@@ -186,12 +150,6 @@ Return JSON with:
         zodResponseFormat(SummarizeSchema, "summarize_schema"),
       );
 
-      /**
-       * ------------------------------------------------------
-       * Parse Response
-       * ------------------------------------------------------
-       */
-
       const raw = response.choices[0]?.message?.content;
 
       if (!raw) {
@@ -205,12 +163,6 @@ Return JSON with:
       }
 
       const parsed = SummarizeSchema.parse(JSON.parse(raw));
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

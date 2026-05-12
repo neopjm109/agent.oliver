@@ -10,7 +10,7 @@ export const bootstrapToolRouter = (): ToolExecutor => {
     registry.register(t);
   }
   return new ToolExecutor(registry);
-}
+};
 
 const templates: Map<string, GraphTemplate> = new Map();
 export const bootstrapIntentRegistry = (): IntentRegistry => {
@@ -18,4 +18,4 @@ export const bootstrapIntentRegistry = (): IntentRegistry => {
     templates.set(t.intent, t);
   }
   return new IntentRegistry(templates);
-}
+};

@@ -11,6 +11,25 @@ export class ActionGraphEngine {
   private toolExecutor: ToolExecutor = bootstrapToolRouter();
   constructor() {}
 
+  async testRun() {
+    // 1. Intent classification
+    const intent = { intent: "WEB_RESEARCH" }
+    console.log(intent);
+
+    // 2. Graph 생성
+    const graphBuilder = new GraphBuilder(this.intentRegistry);
+    const graph = graphBuilder.build(intent?.intent, "TEST");
+    console.log("graph", graph);
+
+    // 3. System Loop 실행
+    const scheduler = new Scheduler(graph, this.toolExecutor);
+    const result = await scheduler.run();
+    console.log("schedule graph", result);
+
+    // 4. 최종 결과 추출
+    return this.extractResult(result);
+  }
+
   async run(input: string) {
     // 1. Intent classification
     const intent = await classify(input);
@@ -27,7 +46,8 @@ export class ActionGraphEngine {
     console.log("schedule graph", result);
 
     // 4. 최종 결과 추출
-    return this.extractResult(result);
+    return result.state.result;
+    // return this.extractResult(result);
   }
 
   private extractResult(graph: ActionGraph) {

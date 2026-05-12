@@ -9,12 +9,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const VerifySchema = z.object({
   is_valid: z.boolean(),
   score: z.number(),
@@ -27,19 +21,7 @@ export const VerifySchema = z.object({
 
 export type VerifyData = z.infer<typeof VerifySchema>;
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const verifyOutputToolName = "verifyOutputTool";
-
-/**
- * ------------------------------------------------------
- * Verify Output Tool
- * ------------------------------------------------------
- */
 
 export const verifyOutputTool: Tool<VerifyData> = {
   definition: {
@@ -58,13 +40,7 @@ export const verifyOutputTool: Tool<VerifyData> = {
     retryable: true,
     timeoutMs: 30_000,
     version: "1.0.0",
-    tags: [
-      "verification",
-      "validation",
-      "quality",
-      "evaluation",
-      "reasoning",
-    ],
+    tags: ["verification", "validation", "quality", "evaluation", "reasoning"],
     inputSchema: {
       type: "object",
       properties: {
@@ -82,8 +58,7 @@ export const verifyOutputTool: Tool<VerifyData> = {
           items: {
             type: "string",
           },
-          description:
-            "Optional custom evaluation criteria for validation.",
+          description: "Optional custom evaluation criteria for validation.",
         },
       },
       required: ["output"],
@@ -97,12 +72,6 @@ export const verifyOutputTool: Tool<VerifyData> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<VerifyData>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const input = nodeInput.input || "";
       const output = nodeInput.output;
@@ -118,12 +87,6 @@ export const verifyOutputTool: Tool<VerifyData> = {
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Build Criteria
-       * ------------------------------------------------------
-       */
-
       const criteriaText =
         criteria.length > 0
           ? `
@@ -138,12 +101,6 @@ Evaluate:
 - clarity
 - reliability
 `;
-
-      /**
-       * ------------------------------------------------------
-       * Prompt
-       * ------------------------------------------------------
-       */
 
       const systemPrompt = `
 You are a strict and highly precise evaluator.
@@ -181,12 +138,6 @@ Return JSON with:
 - error
       `;
 
-      /**
-       * ------------------------------------------------------
-       * Execute LLM Request
-       * ------------------------------------------------------
-       */
-
       const response = await chatMessages(
         [
           {
@@ -200,12 +151,6 @@ Return JSON with:
         ],
         zodResponseFormat(VerifySchema, "verify_schema"),
       );
-
-      /**
-       * ------------------------------------------------------
-       * Parse Response
-       * ------------------------------------------------------
-       */
 
       const raw = response.choices[0]?.message?.content;
 
@@ -236,12 +181,6 @@ Return JSON with:
           error: "Schema parsing failed",
         };
       }
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

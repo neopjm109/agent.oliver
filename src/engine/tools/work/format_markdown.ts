@@ -9,12 +9,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const FormatMarkdownSchema = z.object({
   markdown: z.string(),
   sections: z.array(z.string()),
@@ -22,23 +16,9 @@ export const FormatMarkdownSchema = z.object({
   error: z.string().optional().nullable(),
 });
 
-export type FormatMarkdownData = z.infer<
-  typeof FormatMarkdownSchema
->;
-
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
+export type FormatMarkdownData = z.infer<typeof FormatMarkdownSchema>;
 
 export const formatMarkdownName = "formatMarkdownTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const formatMarkdownTool: Tool<FormatMarkdownData> = {
   definition: {
@@ -56,13 +36,7 @@ export const formatMarkdownTool: Tool<FormatMarkdownData> = {
     retryable: true,
     timeoutMs: 30_000,
     version: "1.0.0",
-    tags: [
-      "markdown",
-      "formatting",
-      "documentation",
-      "text",
-      "structure",
-    ],
+    tags: ["markdown", "formatting", "documentation", "text", "structure"],
     inputSchema: {
       type: "object",
       properties: {
@@ -72,18 +46,12 @@ export const formatMarkdownTool: Tool<FormatMarkdownData> = {
         },
         style: {
           type: "string",
-          enum: [
-            "simple",
-            "detailed",
-            "documentation",
-          ],
-          description:
-            "Markdown formatting style preset.",
+          enum: ["simple", "detailed", "documentation"],
+          description: "Markdown formatting style preset.",
         },
         include_toc: {
           type: "boolean",
-          description:
-            "Whether to include a table of contents.",
+          description: "Whether to include a table of contents.",
         },
       },
       required: ["text"],
@@ -106,8 +74,7 @@ export const formatMarkdownTool: Tool<FormatMarkdownData> = {
       const nodeInput = context.node.input || {};
       const text = nodeInput.text;
       const style = nodeInput.style || "simple";
-      const includeToc =
-        nodeInput.include_toc || false;
+      const includeToc = nodeInput.include_toc || false;
 
       if (!text) {
         return {
@@ -134,9 +101,7 @@ export const formatMarkdownTool: Tool<FormatMarkdownData> = {
           "Format as professional technical documentation with clear sections, subsections, code blocks, notes, and structured hierarchy.",
       };
 
-      const styleGuide =
-        styleGuideMap[style] ||
-        styleGuideMap.simple;
+      const styleGuide = styleGuideMap[style] || styleGuideMap.simple;
 
       /**
        * ------------------------------------------------------
@@ -208,10 +173,7 @@ Return JSON with:
             content: userPrompt,
           },
         ],
-        zodResponseFormat(
-          FormatMarkdownSchema,
-          "format_markdown_schema",
-        ),
+        zodResponseFormat(FormatMarkdownSchema, "format_markdown_schema"),
       );
 
       /**
@@ -220,8 +182,7 @@ Return JSON with:
        * ------------------------------------------------------
        */
 
-      const raw =
-        response.choices[0]?.message?.content;
+      const raw = response.choices[0]?.message?.content;
 
       if (!raw) {
         return {
@@ -236,9 +197,7 @@ Return JSON with:
       let parsed: FormatMarkdownData;
 
       try {
-        parsed = FormatMarkdownSchema.parse(
-          JSON.parse(raw),
-        );
+        parsed = FormatMarkdownSchema.parse(JSON.parse(raw));
       } catch {
         parsed = {
           markdown: raw,
@@ -262,23 +221,18 @@ Return JSON with:
           model: response.model,
           style,
           includeToc,
-          sectionCount:
-            parsed.sections.length,
+          sectionCount: parsed.sections.length,
           confidence: parsed.confidence,
-          executionId:
-            context.runtime.executionId,
+          executionId: context.runtime.executionId,
         },
       };
     } catch (error: any) {
       return {
         success: false,
-        error:
-          error?.message ||
-          "Unknown markdown formatting error",
+        error: error?.message || "Unknown markdown formatting error",
         metadata: {
           tool: formatMarkdownName,
-          executionId:
-            context.runtime.executionId,
+          executionId: context.runtime.executionId,
         },
       };
     }

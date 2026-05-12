@@ -8,32 +8,14 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const ExecuteCodeSchema = z.object({
   language: z
     .string()
-    .describe(
-      "Programming language such as javascript or python",
-    ),
-  code: z
-    .string()
-    .describe("Source code to execute"),
+    .describe("Programming language such as javascript or python"),
+  code: z.string().describe("Source code to execute"),
 });
 
-export type ExecuteCodeInput = z.infer<
-  typeof ExecuteCodeSchema
->;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
+export type ExecuteCodeInput = z.infer<typeof ExecuteCodeSchema>;
 
 export interface ExecuteCodeResult {
   language: string;
@@ -43,46 +25,32 @@ export interface ExecuteCodeResult {
   durationMs: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const executeCodeName = "executeCodeTool";
 
-/**
- * ------------------------------------------------------
- * Helpers
- * ------------------------------------------------------
- */
-
-function buildCommand(
-  language: string,
-  code: string,
-): string {
+function buildCommand(language: string, code: string): string {
+  const escaped = code.replace(/"/g, '\\"');
   switch (language.toLowerCase()) {
     case "javascript":
     case "js":
-      return `node -e "${code.replace(/"/g, '\\"')}"`;
+      return `node -e "${escaped}"`;
 
     case "python":
     case "python3":
     case "py":
-      return `python3 -c "${code.replace(/"/g, '\\"')}"`;
+      return `python3 -c "${escaped}"`;
+
+    case "typescript":
+    case "ts":
+      /**
+       * tsx 필요
+       * npm install tsx
+       */
+      return `npx tsx -e "${escaped}"`;
 
     default:
-      throw new Error(
-        `Unsupported language: ${language}`,
-      );
+      throw new Error(`Unsupported language: ${language}`);
   }
 }
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const executeCodeTool: Tool<ExecuteCodeResult> = {
   definition: {
@@ -96,31 +64,21 @@ export const executeCodeTool: Tool<ExecuteCodeResult> = {
       "script_evaluation",
       "process_runtime",
     ],
-    sideEffects: [
-      SideEffect.PROCESS_EXECUTION,
-    ],
+    sideEffects: [SideEffect.PROCESS_EXECUTION],
     retryable: false,
     timeoutMs: 5_000,
     version: "1.0.0",
-    tags: [
-      "execution",
-      "runtime",
-      "javascript",
-      "python",
-      "sandbox",
-    ],
+    tags: ["execution", "runtime", "javascript", "python", "sandbox"],
     inputSchema: {
       type: "object",
       properties: {
         language: {
           type: "string",
-          description:
-            "Programming language runtime to use.",
+          description: "Programming language runtime to use.",
         },
         code: {
           type: "string",
-          description:
-            "Source code that will be executed.",
+          description: "Source code that will be executed.",
         },
       },
       required: ["language", "code"],
@@ -213,8 +171,7 @@ export const executeCodeTool: Tool<ExecuteCodeResult> = {
     } catch (error: any) {
       return {
         success: false,
-        error:
-          error?.message || "Unknown code execution error",
+        error: error?.message || "Unknown code execution error",
         metadata: {
           tool: executeCodeName,
           executionId: context.runtime.executionId,

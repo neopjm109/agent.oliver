@@ -7,16 +7,8 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const DatabaseQuerySchema = z.object({
-  query: z
-    .string()
-    .describe("Database query string to execute"),
+  query: z.string().describe("Database query string to execute"),
   database: z
     .string()
     .optional()
@@ -25,15 +17,7 @@ export const DatabaseQuerySchema = z.object({
     ),
 });
 
-export type DatabaseQueryInput = z.infer<
-  typeof DatabaseQuerySchema
->;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
+export type DatabaseQueryInput = z.infer<typeof DatabaseQuerySchema>;
 
 export interface DatabaseQueryResult {
   database: string;
@@ -43,19 +27,7 @@ export interface DatabaseQueryResult {
   executionTimeMs?: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const databaseQueryName = "databaseQueryTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const databaseQueryTool: Tool<DatabaseQueryResult> = {
   definition: {
@@ -69,32 +41,21 @@ export const databaseQueryTool: Tool<DatabaseQueryResult> = {
       "nosql_query",
       "data_retrieval",
     ],
-    sideEffects: [
-      SideEffect.DATABASE_WRITE,
-      SideEffect.NETWORK_CALL,
-    ],
+    sideEffects: [SideEffect.DATABASE_WRITE, SideEffect.NETWORK_CALL],
     retryable: true,
     timeoutMs: 30_000,
     version: "1.0.0",
-    tags: [
-      "database",
-      "query",
-      "sql",
-      "mongodb",
-      "data",
-    ],
+    tags: ["database", "query", "sql", "mongodb", "data"],
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description:
-            "Database query string to execute.",
+          description: "Database query string to execute.",
         },
         database: {
           type: "string",
-          description:
-            "Target database engine or connection identifier.",
+          description: "Target database engine or connection identifier.",
         },
       },
       required: ["query"],
@@ -181,8 +142,7 @@ export const databaseQueryTool: Tool<DatabaseQueryResult> = {
     } catch (error: any) {
       return {
         success: false,
-        error:
-          error?.message || "Unknown database execution error",
+        error: error?.message || "Unknown database execution error",
         metadata: {
           tool: databaseQueryName,
           executionId: context.runtime.executionId,

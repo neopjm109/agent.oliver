@@ -10,33 +10,15 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const PatchFilesSchema = z.object({
   pathname: z
     .string()
-    .describe(
-      "Path to the file (relative to root or absolute within root)",
-    ),
-  search: z
-    .string()
-    .describe("Exact string or code block to find"),
-  replace: z
-    .string()
-    .describe("Replacement string or code block"),
+    .describe("Path to the file (relative to root or absolute within root)"),
+  search: z.string().describe("Exact string or code block to find"),
+  replace: z.string().describe("Replacement string or code block"),
 });
 
 export type PatchFileInput = z.infer<typeof PatchFilesSchema>;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
 
 export interface PatchFileResult {
   pathname: string;
@@ -46,19 +28,7 @@ export interface PatchFileResult {
   updatedLength: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const patchFileName = "patchFileTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const patchFileTool: Tool<PatchFileResult> = {
   definition: {
@@ -76,30 +46,21 @@ export const patchFileTool: Tool<PatchFileResult> = {
     retryable: false,
     timeoutMs: 20_000,
     version: "1.0.0",
-    tags: [
-      "filesystem",
-      "patch",
-      "replace",
-      "modify",
-      "code",
-    ],
+    tags: ["filesystem", "patch", "replace", "modify", "code"],
     inputSchema: {
       type: "object",
       properties: {
         pathname: {
           type: "string",
-          description:
-            "Target file path relative to project root.",
+          description: "Target file path relative to project root.",
         },
         search: {
           type: "string",
-          description:
-            "Exact string or code block to search for.",
+          description: "Exact string or code block to search for.",
         },
         replace: {
           type: "string",
-          description:
-            "Replacement string or code block.",
+          description: "Replacement string or code block.",
         },
       },
       required: ["pathname", "search", "replace"],
@@ -113,53 +74,24 @@ export const patchFileTool: Tool<PatchFileResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<PatchFileResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const pathname = nodeInput.pathname;
       const search = nodeInput.search;
       const replace = nodeInput.replace;
 
-      if (
-        !pathname ||
-        search === undefined ||
-        replace === undefined
-      ) {
+      if (!pathname || search === undefined || replace === undefined) {
         return {
           success: false,
-          error:
-            "Missing required input: pathname, search, replace",
+          error: "Missing required input: pathname, search, replace",
           metadata: {
             tool: patchFileName,
           },
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Resolve Path
-       * ------------------------------------------------------
-       */
-
       const abs = safePath(pathname);
 
-      /**
-       * ------------------------------------------------------
-       * Read File
-       * ------------------------------------------------------
-       */
-
       const content = await readFile(abs, "utf-8");
-
-      /**
-       * ------------------------------------------------------
-       * Validate Search Match
-       * ------------------------------------------------------
-       */
 
       if (!content.includes(search)) {
         return {
@@ -174,29 +106,10 @@ export const patchFileTool: Tool<PatchFileResult> = {
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Patch Content
-       * ------------------------------------------------------
-       */
-
-      const replacements =
-        content.split(search).length - 1;
+      const replacements = content.split(search).length - 1;
       const updatedContent = content.replace(search, replace);
 
-      /**
-       * ------------------------------------------------------
-       * Write File
-       * ------------------------------------------------------
-       */
-
       await writeFile(abs, updatedContent, "utf-8");
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

@@ -10,30 +10,14 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const WriteFilesSchema = z.object({
   pathname: z
     .string()
-    .describe(
-      "Path to the file (relative to root or absolute within root)",
-    ),
-  content: z
-    .string()
-    .describe("Raw content to write into the file"),
+    .describe("Path to the file (relative to root or absolute within root)"),
+  content: z.string().describe("Raw content to write into the file"),
 });
 
 export type WriteFileInput = z.infer<typeof WriteFilesSchema>;
-
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
 
 export interface WriteFileResult {
   pathname: string;
@@ -42,19 +26,7 @@ export interface WriteFileResult {
   bytesWritten: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const writeFileName = "writeFileTool";
-
-/**
- * ------------------------------------------------------
- * Tool
- * ------------------------------------------------------
- */
 
 export const writeFileTool: Tool<WriteFileResult> = {
   definition: {
@@ -72,25 +44,17 @@ export const writeFileTool: Tool<WriteFileResult> = {
     retryable: false,
     timeoutMs: 15_000,
     version: "1.0.0",
-    tags: [
-      "filesystem",
-      "write",
-      "create",
-      "file",
-      "content",
-    ],
+    tags: ["filesystem", "write", "create", "file", "content"],
     inputSchema: {
       type: "object",
       properties: {
         pathname: {
           type: "string",
-          description:
-            "Target file path relative to the project root.",
+          description: "Target file path relative to the project root.",
         },
         content: {
           type: "string",
-          description:
-            "Raw content that will be written into the file.",
+          description: "Raw content that will be written into the file.",
         },
       },
       required: ["pathname", "content"],
@@ -104,12 +68,6 @@ export const writeFileTool: Tool<WriteFileResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<WriteFileResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const pathname = nodeInput.pathname;
       const content = nodeInput.content;
@@ -134,47 +92,17 @@ export const writeFileTool: Tool<WriteFileResult> = {
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Resolve Safe Path
-       * ------------------------------------------------------
-       */
-
       const abs = safePath(pathname);
       const dir = dirname(abs);
 
-      /**
-       * ------------------------------------------------------
-       * Check Existing File
-       * ------------------------------------------------------
-       */
-
       const existing = await stat(abs).catch(() => null);
       const created = !existing;
-
-      /**
-       * ------------------------------------------------------
-       * Ensure Directory Exists
-       * ------------------------------------------------------
-       */
 
       await mkdir(dir, {
         recursive: true,
       });
 
-      /**
-       * ------------------------------------------------------
-       * Write File
-       * ------------------------------------------------------
-       */
-
       await writeFile(abs, content, "utf-8");
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

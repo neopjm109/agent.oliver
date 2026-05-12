@@ -7,29 +7,11 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
-
 export interface SimpleResponseResult {
   response: string;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const simpleResponseToolName = "simpleResponseTool";
-
-/**
- * ------------------------------------------------------
- * Simple Response Tool
- * ------------------------------------------------------
- */
 
 export const simpleResponseTool: Tool<SimpleResponseResult> = {
   definition: {
@@ -72,12 +54,6 @@ export const simpleResponseTool: Tool<SimpleResponseResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<SimpleResponseResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const input = nodeInput.input;
       const instruction = nodeInput.instruction;
@@ -92,12 +68,6 @@ export const simpleResponseTool: Tool<SimpleResponseResult> = {
         };
       }
 
-      /**
-       * ------------------------------------------------------
-       * Build Final Prompt
-       * ------------------------------------------------------
-       */
-
       const finalInput = instruction
         ? `
 [INSTRUCTION]
@@ -108,24 +78,11 @@ ${input}
 `
         : input;
 
-      /**
-       * ------------------------------------------------------
-       * Execute LLM Request
-       * ------------------------------------------------------
-       */
-
       const result = await chatInput(finalInput, {
         type: "text",
       });
 
-      const response =
-        result?.choices?.[0]?.message?.content?.trim() || "";
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
+      const response = result?.choices?.[0]?.message?.content?.trim() || "";
 
       return {
         success: true,

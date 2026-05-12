@@ -10,12 +10,6 @@ import {
 import { IntentSchema } from "../../core/types";
 import { chatMessages } from "../../client/client";
 
-/**
- * ------------------------------------------------------
- * Schema
- * ------------------------------------------------------
- */
-
 export const AnalyzeSchema = z.object({
   intent: IntentSchema,
   next_intent: z.string(),
@@ -40,19 +34,7 @@ export const AnalyzeSchema = z.object({
 
 export type AnalyzeData = z.infer<typeof AnalyzeSchema>;
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const analyzeToolName = "analyzeTool";
-
-/**
- * ------------------------------------------------------
- * Analyze Tool
- * ------------------------------------------------------
- */
 
 export const analyzeTool: Tool<AnalyzeData> = {
   definition: {
@@ -153,12 +135,6 @@ Return JSON with:
 - confidence
       `;
 
-      /**
-       * ------------------------------------------------------
-       * LLM Call
-       * ------------------------------------------------------
-       */
-
       const response = await chatMessages(
         [
           {
@@ -174,12 +150,6 @@ Return JSON with:
         zodResponseFormat(AnalyzeSchema, "analyze_schema"),
       );
 
-      /**
-       * ------------------------------------------------------
-       * Parse Result
-       * ------------------------------------------------------
-       */
-
       const raw = response.choices[0]?.message?.content;
 
       if (!raw) {
@@ -193,12 +163,6 @@ Return JSON with:
       }
 
       const parsed = AnalyzeSchema.parse(JSON.parse(raw));
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,

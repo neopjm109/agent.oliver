@@ -6,12 +6,6 @@ import {
   SideEffect,
 } from "../types";
 
-/**
- * ------------------------------------------------------
- * Types
- * ------------------------------------------------------
- */
-
 export interface SearchResultItem {
   text?: string;
   firstURL?: string;
@@ -27,19 +21,7 @@ export interface SearchWebResult {
   totalResults: number;
 }
 
-/**
- * ------------------------------------------------------
- * Constants
- * ------------------------------------------------------
- */
-
 export const searchToolName = "searchTool";
-
-/**
- * ------------------------------------------------------
- * Search Web Tool
- * ------------------------------------------------------
- */
 
 export const searchWebTool: Tool<SearchWebResult> = {
   definition: {
@@ -47,11 +29,7 @@ export const searchWebTool: Tool<SearchWebResult> = {
     description:
       "Searches the web for relevant information using external search providers.",
     category: ToolCategory.WEB,
-    capabilities: [
-      "web_search",
-      "information_retrieval",
-      "external_lookup",
-    ],
+    capabilities: ["web_search", "information_retrieval", "external_lookup"],
     sideEffects: [SideEffect.NETWORK_CALL],
     retryable: true,
     timeoutMs: 15_000,
@@ -76,12 +54,6 @@ export const searchWebTool: Tool<SearchWebResult> = {
     context: ToolExecutionContext,
   ): Promise<ToolResult<SearchWebResult>> {
     try {
-      /**
-       * ------------------------------------------------------
-       * Extract Input
-       * ------------------------------------------------------
-       */
-
       const nodeInput = context.node.input || {};
       const query = nodeInput.query;
       if (!query) {
@@ -93,12 +65,6 @@ export const searchWebTool: Tool<SearchWebResult> = {
           },
         };
       }
-
-      /**
-       * ------------------------------------------------------
-       * Execute Search
-       * ------------------------------------------------------
-       */
 
       // NOTE:
       // Replace with:
@@ -127,24 +93,12 @@ export const searchWebTool: Tool<SearchWebResult> = {
       const json = await response.json();
       const relatedTopics = json?.RelatedTopics || [];
 
-      /**
-       * ------------------------------------------------------
-       * Normalize Results
-       * ------------------------------------------------------
-       */
-
       const results: SearchResultItem[] = relatedTopics.map((item: any) => ({
         text: item?.Text,
         firstURL: item?.FirstURL,
         icon: item?.Icon,
         topic: item?.Name,
       }));
-
-      /**
-       * ------------------------------------------------------
-       * Return Structured Result
-       * ------------------------------------------------------
-       */
 
       return {
         success: true,
