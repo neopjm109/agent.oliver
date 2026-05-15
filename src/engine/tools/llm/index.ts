@@ -5,6 +5,15 @@ import * as summarize from "./summarize";
 import * as verify from "./verify";
 import * as translate from "./translate";
 
+export const TOOL_LIST = [
+  simpleResponse,
+  generateCode,
+  generateContent,
+  summarize,
+  verify,
+  translate,
+];
+
 export {
   simpleResponse,
   generateCode,
