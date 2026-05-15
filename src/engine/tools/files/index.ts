@@ -1,11 +1,12 @@
-import * as findFiles from "./find";
-import * as readFiles from "./read";
-import * as writeFiles from "./write";
-import * as editFiles from "./edit";
-import * as diffFiles from "./diff";
-import * as moveFiles from "./move";
+import findFiles from "./find";
+import readFiles from "./read";
+import writeFiles from "./write";
+import editFiles from "./edit";
+import diffFiles from "./diff";
+import moveFiles from "./move";
+import { Tool } from "../types";
 
-export const TOOL_LIST = [
+export const TOOL_LIST: Tool[] = [
   findFiles,
   readFiles,
   writeFiles,

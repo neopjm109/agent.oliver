@@ -1,10 +1,11 @@
-import * as formatTool from "./formatTool";
-import * as lintTool from "./lintTool";
-import * as runCommandTool from "./runCommand";
-import * as runTestTool from "./runTest";
-import * as typeCheckTool from "./typeCheckTool";
+import { Tool } from "../types";
+import formatTool from "./formatTool";
+import lintTool from "./lintTool";
+import runCommandTool from "./runCommand";
+import runTestTool from "./runTest";
+import typeCheckTool from "./typeCheckTool";
 
-export const TOOL_LIST = [
+export const TOOL_LIST: Tool[] = [
   formatTool,
   lintTool,
   runCommandTool,
