@@ -17,6 +17,14 @@ export function safeToLowerCase(text: string): string {
   return (text || "").toLowerCase();
 }
 
+export function normalizeOutput(value: string | Buffer): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value.toString("utf-8");
+}
+
 // 토큰 사용량 계산
 // export const calculateTotalTokenUsage = (
 //   origin: TokenUsage,

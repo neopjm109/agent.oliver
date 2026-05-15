@@ -13,12 +13,15 @@ export class ActionGraphEngine {
 
   async testRun() {
     // 1. Intent classification
-    const intent = { intent: "WEB_RESEARCH" }
+    const intent = { intent: "FOLDER_ANALYSIS" };
     console.log(intent);
 
     // 2. Graph 생성
     const graphBuilder = new GraphBuilder(this.intentRegistry);
-    const graph = graphBuilder.build(intent?.intent, "TEST");
+    const graph = graphBuilder.build(
+      intent?.intent,
+      "src 폴더에 대해 분석해서 설명해줘",
+    );
     console.log("graph", graph);
 
     // 3. System Loop 실행

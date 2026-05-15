@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { Tool, ToolDefinition } from "../tools/types";
-import { ReactiveGraphMutationEngine } from "./4.mutation";
 import { ActionGraph, ActionNode, RuntimeContext } from "./types";
 import { chatMessages } from "../client/client";
 import { zodResponseFormat } from "openai/helpers/zod.js";
@@ -10,7 +9,6 @@ export class ActionExecutor {
   constructor(
     private graph: ActionGraph,
     private toolExecutor: ToolExecutor,
-    private mutationEngine?: ReactiveGraphMutationEngine,
   ) {}
 
   async execute(node: ActionNode): Promise<any> {
@@ -23,9 +21,6 @@ export class ActionExecutor {
 
       const result = await this.toolExecutor.execute(node, this.graph, runtime);
       node.output = result;
-
-      // 🔥 핵심: mutation trigger
-      this.mutationEngine?.onNodeCompleted(node);
 
       return result;
     } catch (err: any) {

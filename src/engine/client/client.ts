@@ -21,6 +21,7 @@ export const chat = async ({
     temperature,
     reasoning_effort: effort,
     response_format: format,
+    max_completion_tokens: 8096
   });
 };
 

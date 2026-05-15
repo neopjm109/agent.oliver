@@ -12,6 +12,7 @@ import { ActionGraph, ActionNode, RuntimeContext } from "../core/types";
 
 export enum ToolCategory {
   FILE_SYSTEM,
+  RETRIEVAL,
   DATABASE,
   WEB,
   LLM,
