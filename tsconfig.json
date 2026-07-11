@@ -1,32 +1,14 @@
 {
   "compilerOptions": {
-    /* 기본 설정 */
-    "target": "ESNext", // 최신 자바스크립트로 변환
-    "module": "nodenext", // ESM 모듈 시스템 사용
-    "lib": ["DOM", "DOM.Iterable", "ESNext"], // 브라우저 및 최신 JS 기능 타입 정의
-    "allowJs": true, // JS 파일 컴파일 허용
-    "skipLibCheck": true, // 라이브러리 타입 검사 생략 (빌드 속도) [5]
-    "esModuleInterop": true, // CommonJS 모듈을 ES6로 호환
-    "allowSyntheticDefaultImports": true, // default export가 없는 모듈의 기본 import 허용
-
-    /* 엄격한 타입 검사 (필수) */
-    "strict": true, // 모든 엄격한 타입 검사 활성화 [9]
-    "forceConsistentCasingInFileNames": true, // 파일명 대소문자 구분
-    "noImplicitAny": true, // any 타입 암묵적 사용 금지
-
-    /* 모듈 해석 및 경로 설정 */
-    "moduleResolution": "nodenext", // Node.js 방식으로 모듈 해석
-    "resolveJsonModule": true, // JSON 파일 import 허용
-    "isolatedModules": true, // 트랜스파일링 도구 안전성 향상
-    "noEmit": true, // 타입 검사만 수행 (빌드는 빌드도구 사용)
-    "jsx": "react-jsx" // React 17+ JSX 변환
-
-    /* 경로 별칭 (Path Aliases) - 프로젝트 구조에 맞게 수정 */
-    // "baseUrl": ".",
-    // "paths": {
-    //   "@/*": ["src/*"]
-    // }
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node"]
   },
-  "include": ["src"], // 컴파일할 파일 범위
-  "exclude": ["node_modules", "dist"] // 제외할 파일
+  "include": ["src/**/*.ts"]
 }

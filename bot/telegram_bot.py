@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""
+Skillful Agent 텔레그램 봇 (python-telegram-bot 기반).
+
+텔레그램 채팅 메시지를 TS 에이전트 HTTP 서버(POST /chat)로 전달하고,
+응답을 다시 채팅으로 보낸다. 대화는 chat_id 별 세션으로 서버에서 영속화된다.
+
+의존성: python-telegram-bot (httpx 포함) — requirements.txt 참고
+환경변수 (bot/.env 또는 실제 환경변수):
+  TELEGRAM_BOT_TOKEN   BotFather 에서 발급한 봇 토큰 (필수)
+  AGENT_URL            에이전트 서버 주소 (기본 http://localhost:8787)
+  AGENT_SERVER_TOKEN   서버 토큰 (서버에서 설정했다면 동일 값)
+
+명령어:
+  /start   안내 메시지
+  /reset   현재 채팅의 대화 기록 초기화
+그 외 모든 텍스트 메시지는 에이전트에게 전달된다.
+"""
+import os
+import json
+import sys
+import time
+
+import httpx
+from telegram import Update
+from telegram.constants import ChatAction, ParseMode
+from telegram.error import BadRequest
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+try:
+    import telegramify_markdown  # 표준 마크다운 → 텔레그램 MarkdownV2 변환
+except ImportError:
+    telegramify_markdown = None
+
+
+def _load_dotenv(path: str):
+    """의존성 없이 bot/.env 를 읽어 os.environ 에 주입 (이미 설정된 값은 유지)."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+AGENT_URL = os.environ.get("AGENT_URL", "http://localhost:8787").rstrip("/")
+AGENT_TOKEN = os.environ.get("AGENT_SERVER_TOKEN", "").strip()
+
+# 허용할 텔레그램 chat_id 목록(콤마 구분). 비어 있으면 전체 허용(경고 출력).
+# 에이전트가 셸/파일 도구를 쓰므로, 공개 봇이라면 반드시 본인 chat_id 만 허용할 것.
+ALLOWED_CHAT_IDS = {
+    int(x) for x in os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "").replace(" ", "").split(",") if x
+}
+
+if not TELEGRAM_TOKEN:
+    sys.exit("환경변수 TELEGRAM_BOT_TOKEN 이 필요합니다.")
+
+TG_MAX = 4096  # 텔레그램 메시지 길이 제한
+
+
+def _is_allowed(chat_id: int) -> bool:
+    return not ALLOWED_CHAT_IDS or chat_id in ALLOWED_CHAT_IDS
+
+
+def _headers() -> dict:
+    return {"x-api-key": AGENT_TOKEN} if AGENT_TOKEN else {}
+
+
+def _session_id(chat_id: int) -> str:
+    return f"tg-{chat_id}"
+
+
+def _to_markdown_v2(text: str):
+    """표준 마크다운을 텔레그램 MarkdownV2 로 변환. 불가하면 None."""
+    if telegramify_markdown is None:
+        return None
+    try:
+        return telegramify_markdown.markdownify(text)
+    except Exception:
+        return None
+
+
+async def _edit_final(message, text: str):
+    """진행 표시 메시지를 최종 답변으로 교체. 마크다운 우선, 실패/초과 시 평문 분할."""
+    text = text or "(빈 응답)"
+    if len(text) <= TG_MAX:
+        md = _to_markdown_v2(text)
+        if md is not None and len(md) <= TG_MAX:
+            try:
+                await message.edit_text(md, parse_mode=ParseMode.MARKDOWN_V2)
+                return
+            except BadRequest:
+                pass  # 파싱 실패 → 평문 폴백
+        try:
+            await message.edit_text(text)
+            return
+        except BadRequest:
+            pass
+    # 길거나 편집 실패: 진행 메시지 지우고 평문 4096자 분할 전송
+    chat = message.chat
+    try:
+        await message.delete()
+    except BadRequest:
+        pass
+    for i in range(0, len(text), TG_MAX):
+        await chat.send_message(text[i : i + TG_MAX])
+
+
+async def start(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    print(f"[/start] chat_id={chat_id}")
+    await update.message.reply_text(
+        "안녕하세요! 스킬 기반 AI 에이전트입니다. 무엇이든 물어보세요.\n"
+        "/reset — 대화 초기화\n"
+        "/soul — 페르소나 목록 / 변경 (예: /soul oliver, /soul off)\n"
+        f"(내 chat_id: {chat_id})"
+    )
+
+
+async def reset(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if not _is_allowed(chat_id):
+        await update.message.reply_text("이 봇을 사용할 권한이 없습니다.")
+        return
+    session = _session_id(chat_id)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.post(f"{AGENT_URL}/reset", json={"session": session}, headers=_headers())
+    except httpx.HTTPError:
+        pass
+    await update.message.reply_text("대화 기록을 초기화했습니다.")
+
+
+async def soul(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/soul            → 사용 가능한 페르소나 목록
+    /soul <이름>        → 이 채팅의 페르소나 변경
+    /soul off|none|해제 → 일반 모드로 되돌림"""
+    chat_id = update.effective_chat.id
+    if not _is_allowed(chat_id):
+        await update.message.reply_text("이 봇을 사용할 권한이 없습니다.")
+        return
+
+    args = context.args or []
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # 인자 없음 → 목록 안내
+            if not args:
+                r = await client.get(f"{AGENT_URL}/souls", headers=_headers())
+                souls = r.json().get("souls", []) if r.status_code == 200 else []
+                listing = "\n".join(f"• {s}" for s in souls) or "(등록된 페르소나 없음)"
+                await update.message.reply_text(
+                    "사용 가능한 페르소나:\n" + listing
+                    + "\n\n변경: /soul <이름>\n일반 모드: /soul off"
+                )
+                return
+
+            # 변경 / 해제
+            name = "" if args[0].lower() in ("off", "none", "해제", "일반") else args[0]
+            r = await client.post(
+                f"{AGENT_URL}/soul",
+                json={"session": _session_id(chat_id), "name": name},
+                headers=_headers(),
+            )
+    except httpx.HTTPError as e:
+        await update.message.reply_text(f"⚠️ 서버 연결 실패: {e}")
+        return
+
+    if r.status_code == 200:
+        persona = r.json().get("persona")
+        msg = f"페르소나를 '{persona}' 로 변경했습니다." if persona else "일반 모드로 변경했습니다."
+        await update.message.reply_text(msg)
+    elif r.status_code == 404:
+        souls = r.json().get("souls", [])
+        listing = ", ".join(souls) or "(없음)"
+        await update.message.reply_text(f"그런 페르소나가 없습니다.\n사용 가능: {listing}")
+    else:
+        await update.message.reply_text(f"⚠️ 변경 실패 ({r.status_code}): {r.text[:200]}")
+
+
+async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+
+    if not _is_allowed(chat_id):
+        print(f"[차단] 허용되지 않은 chat_id={chat_id} 의 메시지 거부")
+        await update.message.reply_text(
+            f"이 봇을 사용할 권한이 없습니다.\n(내 chat_id: {chat_id})"
+        )
+        return
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    # 진행 상황을 보여줄 메시지(이후 계속 편집)
+    status = await update.message.reply_text("🤔 생각 중…")
+
+    reply = None
+    used_skills = []
+    last_shown = ""
+    last_edit = 0.0
+
+    async def show_progress(line: str):
+        """진행 로그 한 줄을 상태 메시지에 반영 (편집 rate limit 회피용 스로틀)."""
+        nonlocal last_shown, last_edit
+        line = line.strip()
+        if not line or line == last_shown:
+            return
+        now = time.monotonic()
+        if now - last_edit < 1.2:  # 너무 잦은 편집 방지
+            return
+        last_shown, last_edit = line, now
+        try:
+            await status.edit_text(f"⏳ {line[:300]}")
+        except BadRequest:
+            pass  # not modified 등 무시
+
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            async with client.stream(
+                "POST",
+                f"{AGENT_URL}/chat/stream",
+                json={"session": _session_id(chat_id), "message": text},
+                headers=_headers(),
+            ) as r:
+                if r.status_code != 200:
+                    body = (await r.aread()).decode(errors="replace")
+                    reply = f"⚠️ 에이전트 오류 ({r.status_code}): {body[:300]}"
+                else:
+                    async for line in r.aiter_lines():
+                        if not line.strip():
+                            continue
+                        ev = json.loads(line)
+                        kind = ev.get("type")
+                        if kind == "step":
+                            await show_progress(ev.get("text", ""))
+                        elif kind == "done":
+                            reply = ev.get("reply", "(응답 없음)")
+                            used_skills = ev.get("skills") or []
+                        elif kind == "error":
+                            reply = f"⚠️ 처리 오류: {ev.get('error')}"
+    except httpx.HTTPError as e:
+        reply = f"⚠️ 에이전트 서버에 연결할 수 없습니다: {e}"
+
+    final = reply if reply is not None else "(응답 없음)"
+    if used_skills:
+        final += "\n\n🧩 사용한 스킬: " + ", ".join(used_skills)
+    await _edit_final(status, final)
+
+
+def main():
+    print(f"텔레그램 봇 시작. 에이전트 서버: {AGENT_URL}")
+    if ALLOWED_CHAT_IDS:
+        print(f"허용 chat_id: {sorted(ALLOWED_CHAT_IDS)}")
+    else:
+        print(
+            "⚠️  경고: TELEGRAM_ALLOWED_CHAT_IDS 미설정 → 누구나 이 봇을 사용할 수 있습니다.\n"
+            "    에이전트가 셸/파일 도구를 쓰므로, 봇에게 /start 를 보내 본인 chat_id 를 확인한 뒤\n"
+            "    bot/.env 의 TELEGRAM_ALLOWED_CHAT_IDS 에 그 값을 넣고 재시작하세요."
+        )
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("soul", soul))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,27 +1,27 @@
 {
-  "name": "ai-agent",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "dev": "nodemon src/server/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "skillful-agent",
+  "version": "0.1.0",
+  "description": "스킬 기반 범용 AI 에이전트 프레임워크 (로컬 LLM / OpenAI 호환)",
+  "type": "module",
+  "bin": {
+    "agent": "./src/index.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.31.0",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "serve": "tsx src/server.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
-    "express": "^5.2.1",
-    "ioredis": "^5.10.1",
-    "openai": "^6.34.0",
-    "zod": "^4.3.6"
+    "openai": "^4.104.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.6.0",
-    "nodemon": "^3.1.14",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

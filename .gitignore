@@ -1,4 +1,4 @@
-node_modules/
 .env*
-*-lock.yaml
-*-lock.json
+.sessions/
+node_modules/*
+.venv/
