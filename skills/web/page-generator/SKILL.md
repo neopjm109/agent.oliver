@@ -62,6 +62,7 @@ Delegate the actual `page.tsx` (and adjacent segment files) to `typescript-senio
 
 - Pages contain minimal business logic; reuse existing Features.
 - Follow App Router conventions; prefer Server Components.
+- **Next.js 15:** `params` and `searchParams` are Promises — type them as `Promise<{...}>` and `await` them inside the async page/`generateMetadata`. Never use Pages Router data APIs (`getServerSideProps`/`getStaticProps`/`getInitialProps`).
 - Configure Metadata via the Metadata API, not manual `<head>` tags.
 - Keep routing structures clean; do not fetch data ad hoc — use Feature data hooks.
 

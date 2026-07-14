@@ -6,6 +6,7 @@ import { SkillRegistry, renderSkillInstructions } from "../src/skills.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = resolve(here, "fixtures/skills");
+const FIX_CATREP = resolve(here, "fixtures/catrep");
 
 test("재귀 로딩: 어느 깊이든 SKILL.md 를 모두 찾는다", () => {
   const reg = SkillRegistry.load(FIX);
@@ -22,6 +23,30 @@ test("카테고리: 최상위 폴더, 직속은 general", () => {
   assert.equal(reg.get("notes")!.category, "general");
   const cats = reg.categories().map((c) => c.name).sort();
   assert.deepEqual(cats, ["general", "review", "tools"]);
+});
+
+test("카테고리 대표 SKILL.md: skills/<cat>/SKILL.md 는 하위 스킬이 있으면 그 카테고리", () => {
+  const reg = SkillRegistry.load(FIX_CATREP);
+  // alpha/ 는 하위 스킬(alpha/leaf)을 가지므로 alpha/SKILL.md 는 alpha 카테고리의 대표
+  assert.equal(reg.get("alpha")!.category, "alpha");
+  assert.equal(reg.get("alpha-leaf")!.category, "alpha");
+  // solo/ 는 하위 스킬이 없는 최상위 직속 → general (기존 동작 보존)
+  assert.equal(reg.get("solo")!.category, "general");
+  const cats = reg.categories().map((c) => c.name).sort();
+  assert.deepEqual(cats, ["alpha", "general"]);
+});
+
+test("categoryEntries: 대표 스킬만, single 모드에서도 노출", () => {
+  const reg = SkillRegistry.load(FIX_CATREP);
+  assert.deepEqual(reg.categoryEntries().map((s) => s.name), ["alpha"]);
+  assert.equal(reg.get("alpha")!.isCategoryEntry, true);
+  assert.equal(reg.get("alpha-leaf")!.isCategoryEntry, false);
+  assert.equal(reg.get("solo")!.isCategoryEntry, false);
+  // alpha 는 invokes 를 가진 오케스트레이터라 single 모드 '발견'에서는 숨겨지지만,
+  // '/skills' 용 categoryEntries 에는 그대로 남아야 한다.
+  const single = SkillRegistry.load(FIX_CATREP, { hideOrchestrators: true });
+  assert.ok(!single.names().includes("alpha")); // 발견에서 숨김
+  assert.deepEqual(single.categoryEntries().map((s) => s.name), ["alpha"]); // 목록엔 유지
 });
 
 test("여러 줄 invokes 리스트 파싱", () => {

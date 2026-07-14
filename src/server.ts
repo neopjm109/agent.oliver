@@ -1,12 +1,14 @@
 #!/usr/bin/env -S npx tsx
 import { createServer, type IncomingMessage } from "node:http";
+import { mkdirSync } from "node:fs";
 import { config } from "./config.js";
 import { LLM } from "./llm.js";
 import { SkillRegistry } from "./skills.js";
 import { selectTools } from "./tools/index.js";
 import { Agent } from "./agent.js";
-import { SessionStore } from "./session.js";
+import { SessionStore, sessionWorkspace } from "./session.js";
 import { loadSoul, listSouls } from "./soul.js";
+import { interpret, type CommandCtx } from "./commands.js";
 
 /**
  * 에이전트 HTTP 서버.
@@ -22,6 +24,8 @@ import { loadSoul, listSouls } from "./soul.js";
  * 대화형 터미널이 없으므로 위험 도구(write/shell)는 AUTO_APPROVE 설정을 따른다.
  */
 
+// 작업 산출물 디렉터리(샌드박스 루트)를 없으면 생성
+mkdirSync(config.cwd, { recursive: true });
 const skills = SkillRegistry.load(config.skillsDir, {
   hideOrchestrators: config.skillMode === "single",
 });
@@ -44,23 +48,43 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 세션에 대해 에이전트를 한 번 실행한다.
+ * 세션에 대해 메시지를 한 번 처리한다.
+ * 먼저 공용 슬래시 명령(/help·/skills·/soul·/reset·/<스킬>)을 해석하고 —
+ *   · 텍스트 응답 명령이면 에이전트 없이 그 텍스트를 반환하고,
+ *   · '/<스킬>' 이면 해당 스킬을 실어 에이전트를 실행한다.
  * onStep 이 주어지면 도구 호출·계획 등 진행 로그를 실시간으로 흘려보낸다.
+ * (CLI 와 동일한 commands.interpret 를 써서 명령 체계를 통일한다.)
  */
-async function runAgent(
+async function processMessage(
   session: string,
   message: string,
   onStep?: (text: string) => void,
 ): Promise<{ reply: string; skills: string[] }> {
   return withLock(session, async () => {
+    const cmdCtx: CommandCtx = {
+      skills,
+      store,
+      session,
+      soulsDir: config.soulsDir,
+      workspaceRoot: config.workspacePerSession ? sessionWorkspace(config.cwd, session) : config.cwd,
+    };
+    const r = interpret(message, cmdCtx);
+    // 텍스트 응답 명령(/help·/skills·/soul·/reset) — 에이전트 미실행 (부수효과는 interpret 가 적용)
+    if (r.type === "reply" || r.type === "error") {
+      return { reply: r.text, skills: [] };
+    }
+
     // 세션에 설정된 페르소나(SOUL)를 정체성으로 주입 (없으면 일반 모드)
     const persona = store.loadPersona(session);
     const soul = persona ? loadSoul(config.soulsDir, persona) : null;
+    // 세션별 작업 폴더로 산출물 분리 (workspacePerSession=true 면 cwd/<세션ID>)
+    const cwd = config.workspacePerSession ? sessionWorkspace(config.cwd, session) : config.cwd;
+    mkdirSync(cwd, { recursive: true });
     const agent = new Agent({
       llm,
       tools,
       skills,
-      config,
+      config: { ...config, cwd },
       soul,
       history: store.load(session),
       summary: store.loadSummary(session),
@@ -70,7 +94,8 @@ async function runAgent(
         onStep?.(m);
       },
     });
-    const reply = await agent.run(message);
+    // '/<스킬>' 이면 스킬을 실어서, 아니면 일반 메시지로 실행
+    const reply = await agent.run(r.text, undefined, r.type === "skill" ? r.skill : undefined);
     store.save(session, agent.exportHistory());
     store.saveSummary(session, agent.getSummary());
     return { reply, skills: agent.getUsedSkills() };
@@ -111,7 +136,7 @@ const server = createServer(async (req, res) => {
       if (!session || !message) {
         return json(400, { error: "session 과 message 가 필요합니다." });
       }
-      const { reply, skills: used } = await runAgent(session, message);
+      const { reply, skills: used } = await processMessage(session, message);
       return json(200, { reply, skills: used });
     }
 
@@ -129,7 +154,7 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8" });
       const emit = (obj: unknown) => res.write(JSON.stringify(obj) + "\n");
       try {
-        const { reply, skills: used } = await runAgent(session, message, (text) =>
+        const { reply, skills: used } = await processMessage(session, message, (text) =>
           emit({ type: "step", text }),
         );
         emit({ type: "done", reply, skills: used });
@@ -186,6 +211,7 @@ const server = createServer(async (req, res) => {
 server.listen(config.port, () => {
   console.log(`Skillful Agent 서버 기동: http://localhost:${config.port}`);
   console.log(`모델 ${config.model} / 스킬 ${skills.size()}개 / 모드 ${config.skillMode}`);
+  console.log(`작업폴더 ${config.cwd} (파일/셸 작업은 이 안에서만)`);
   console.log(`도구: ${tools.map((t) => t.name).join(", ")}`);
   console.log(`위험 도구 자동승인(AUTO_APPROVE): ${config.autoApprove}`);
   if (config.serverToken) console.log("토큰 인증 활성화 (헤더 x-api-key)");

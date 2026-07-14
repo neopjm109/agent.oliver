@@ -17,7 +17,14 @@ export interface PlanStep {
 
 /** 도구 실행 시 주입되는 실행 문맥 */
 export interface ToolContext {
+  /** 현재 작업 디렉터리(루트 + 하위 workdir). 파일/셸 작업의 기준 경로. */
   cwd: string;
+  /** 샌드박스 경계(워크스페이스 루트). cwd 는 이 안에서만 움직이며, 이 밖으로는 접근 불가. */
+  root: string;
+  /** root 기준 현재 하위 작업 폴더(표시용, 기본 ""=루트). */
+  workdir: string;
+  /** 이후 작업의 기준 폴더를 바꾼다(cd 처럼 지속). root 밖이거나 없는 폴더면 throw. 반환: 새 workdir. */
+  setWorkdir(sub: string): string;
   skills: SkillRegistry;
   /** 위험한 작업에 대한 사용자 승인 요청. true 면 진행. */
   requestPermission(action: string, detail: string): Promise<boolean>;

@@ -64,6 +64,7 @@ Confirm responsiveness, accessibility landmarks, and App Router `layout.tsx` com
 
 - Keep layouts focused on composition; no business logic, no API requests.
 - Accept page content through `children`; support nested layouts.
+- **Next.js 15:** when a layout reads route `params`, they arrive as a Promise — type as `Promise<{...}>` and `await`; keep layouts as Server Components unless interactivity forces `"use client"`.
 - Use Tailwind + shadcn/ui; follow the design system and responsive breakpoints.
 - Provide semantic landmarks and skip-navigation where appropriate.
 

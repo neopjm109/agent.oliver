@@ -114,6 +114,8 @@ Merge all outputs into `frontend_artifact`.
 
 # Rules
 
+- **TypeScript is the only source language for the whole web category.** Every generated file is `.tsx` (contains JSX) or `.ts` (everything else) under strict TypeScript — no `.js`/`.jsx`/`.mjs`/`.cjs` output anywhere, including config (`next.config.ts`, `middleware.ts`, `tailwind.config.ts`). Every generator inherits this via `typescript-senior-programmer`; do not accept or pass through a plan that asks for JavaScript files.
+- **Target Next.js 15+ / React 19 syntax across every generator.** App Router only — never `getServerSideProps`/`getStaticProps`/`getInitialProps` or the `pages/` router. Dynamic `params` and `searchParams` are Promises (`await` them in async Server Components and `generateMetadata`); `cookies()`/`headers()`/`draftMode()` from `next/headers` are async; navigation hooks come from `next/navigation` (never `next/router`); Server Action forms use `useActionState`/`useFormStatus` (the removed `useFormState` is banned); `fetch` is uncached by default, so opt into caching explicitly. Reject any plan that relies on pre-15 conventions.
 - Never generate implementation code directly; always delegate.
 - Only `invokes` listed in frontmatter may be called; they must exist in INVENTORY.md.
 - The frontend data layer flows api-client → data → state → hook. Tag data-fetching hooks as `tanstack-query`.

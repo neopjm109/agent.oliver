@@ -16,6 +16,8 @@ export interface Skill {
   body: string;
   /** SKILL.md 가 위치한 폴더 절대경로 (스킬이 참조하는 부속 파일의 기준) */
   dir: string;
+  /** true 면 카테고리 대표(진입점) 스킬 — skills/<cat>/SKILL.md (짧은 이름) */
+  isCategoryEntry: boolean;
 }
 
 /**
@@ -119,13 +121,35 @@ export class SkillRegistry {
     reg.hideOrchestrators = !!opts.hideOrchestrators;
     if (!existsSync(skillsDir)) return reg;
 
-    for (const file of findSkillFiles(skillsDir)) {
+    const files = findSkillFiles(skillsDir);
+    // 하위 스킬(깊이 3 이상)을 가진 최상위 폴더 = "카테고리". 이 집합을 먼저 계산해,
+    // skills/<cat>/SKILL.md(깊이 2)가 그 카테고리의 대표 스킬인지, 아니면
+    // 단순 최상위 직속 스킬(general)인지 구분한다.
+    const deepCategories = new Set<string>();
+    for (const file of files) {
+      const seg = relative(skillsDir, file).split(/[\\/]/);
+      if (seg.length >= 3) deepCategories.add(seg[0]);
+    }
+
+    for (const file of files) {
       const { meta, body } = parseFrontmatter(readFileSync(file, "utf8"));
       const dir = resolve(file, "..");
       const rel = relative(skillsDir, file).split(/[\\/]/);
-      // 최상위 폴더가 카테고리. 바로 skills/ 밑이면 "general".
-      const category = rel.length > 2 ? rel[0] : "general";
-      const name = meta.name || rel.slice(0, -1).join("-");
+      // 카테고리 판정:
+      //  - skills/<cat>/<skill>/SKILL.md (깊이 3+) → 최상위 폴더가 카테고리
+      //  - skills/<cat>/SKILL.md         (깊이 2)  → <cat> 이 하위 스킬을 가진 폴더면
+      //                                              그 카테고리의 대표 스킬, 아니면 general
+      //  - skills/SKILL.md               (깊이 1)  → general
+      const isCategoryEntry = rel.length === 2 && deepCategories.has(rel[0]);
+      const category =
+        rel.length >= 3
+          ? rel[0]
+          : isCategoryEntry
+            ? rel[0]
+            : "general";
+      // frontmatter name 이 없으면 폴더 경로로 이름 생성.
+      // 대표 스킬(skills/<cat>/SKILL.md)은 폴더명 = 카테고리명이라 짧은 이름을 얻는다.
+      const name = meta.name || rel.slice(0, -1).join("-") || "skill";
 
       // 이름 충돌 시 카테고리로 구분 (frontmatter name 이 유일하지 않은 경우 대비)
       let key = name;
@@ -139,6 +163,7 @@ export class SkillRegistry {
         invokes: Array.isArray(meta.invokes) ? meta.invokes : undefined,
         body,
         dir,
+        isCategoryEntry,
       });
     }
     return reg;
@@ -150,6 +175,17 @@ export class SkillRegistry {
 
   all(): Skill[] {
     return [...this.skills.values()];
+  }
+
+  /**
+   * 카테고리 대표(진입점) 스킬만 — 이름 사전순. ('/skills' 목록용)
+   * 대표 스킬은 대개 invokes 를 가진 오케스트레이터라 single 모드면 발견에서 숨겨지지만,
+   * '/skills' 는 사용자가 직접 실행하는 내비게이션 명령이므로 모드와 무관하게 전부 노출한다.
+   */
+  categoryEntries(): Skill[] {
+    return this.all()
+      .filter((s) => s.isCategoryEntry)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** 발견 가능한 스킬 이름 (자동완성용, 사전순 정렬) */
@@ -220,6 +256,16 @@ export class SkillRegistry {
       `총 ${n}개 스킬이 다음 카테고리에 있습니다:\n${cats}\n` +
       `특정 카테고리의 스킬 목록을 보려면 list_skills(category) 도구를 사용하세요.`
     );
+  }
+
+  /**
+   * overview() 가 전체 목록을 펼쳐 보여주는 상태인지 (스킬이 적어 list_skills 탐색이 불필요).
+   * 이 경우 시스템 프롬프트에서 list_skills 단계를 빼, 소형 모델이 빈 카테고리를 탐색하다
+   * 되묻기로 이탈하는 것을 막는다.
+   */
+  isFlatCatalog(flatThreshold = 30): boolean {
+    const n = this.discoverable().length;
+    return n > 0 && n <= flatThreshold;
   }
 
   /** 이름 + 설명 전체 나열 (발견 가능한 것만; 스킬이 적을 때 권장) */

@@ -3,6 +3,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionMessageParam,
   ChatCompletionTool,
+  ChatCompletionToolChoiceOption,
 } from "openai/resources/chat/completions";
 import type { Config } from "./config.js";
 
@@ -24,16 +25,20 @@ export class LLM {
     });
   }
 
-  /** 도구를 붙여 한 번의 채팅 완성을 요청한다 (비스트리밍) */
+  /**
+   * 도구를 붙여 한 번의 채팅 완성을 요청한다 (비스트리밍).
+   * toolChoice 를 주면 도구 선택 방식을 강제한다(기본 "auto"). 특정 도구 강제 호출에 사용.
+   */
   async complete(
     messages: ChatCompletionMessageParam[],
     tools: ChatCompletionTool[],
+    toolChoice?: ChatCompletionToolChoiceOption,
   ): Promise<ChatCompletionMessage> {
     const res = await this.client.chat.completions.create({
       model: this.config.model,
       messages,
       tools: tools.length ? tools : undefined,
-      tool_choice: tools.length ? "auto" : undefined,
+      tool_choice: tools.length ? (toolChoice ?? "auto") : undefined,
       temperature: this.config.temperature,
       max_tokens: this.config.maxTokens,
     });
@@ -101,4 +106,4 @@ export class LLM {
   }
 }
 
-export type { ChatCompletionMessageParam, ChatCompletionTool };
+export type { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionToolChoiceOption };

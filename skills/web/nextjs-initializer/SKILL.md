@@ -64,7 +64,9 @@ Confirm the project builds and runs (`next dev`) with no missing dependencies.
 # Rules
 
 - Follow modern Next.js App Router conventions; prefer Server Components by default.
+- **Pin Next.js 15+ and React 19** and scaffold App Router only (no `pages/` directory). Establish 15-era defaults: `params`/`searchParams` and `next/headers` APIs are async, and `fetch` is uncached by default — do not assume implicit caching in generated data code.
 - Enable TypeScript strict mode.
+- **Scaffold in TypeScript only** — run `create-next-app` with `--typescript`, emit source as `.ts`/`.tsx` (`.tsx` for files with JSX, `.ts` otherwise), and never produce `.js`/`.jsx` files or a `jsconfig.json`. Config files use their `.ts` form (`next.config.ts`, `middleware.ts`, `tailwind.config.ts`) and a `tsconfig.json` with `strict: true`.
 - **pnpm is the preferred package manager** for this and every TypeScript/Node skill. Emit a
   `pnpm-lock.yaml` (not `package-lock.json`) plus `.npmrc`, and run scripts with `pnpm`
   (`pnpm install`, `pnpm dev`, `pnpm build`, `pnpm test`). npm/yarn remain a supported fallback,

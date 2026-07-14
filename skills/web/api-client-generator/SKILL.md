@@ -74,6 +74,7 @@ Delegate the base client, endpoint functions, and types to `typescript-senior-pr
 - Never mix API logic with UI or state; keep the layer framework-agnostic where possible.
 - Always use typed DTOs; separate Request/Response models.
 - Centralize base URL and timeout; inject auth via interceptor; normalize errors (never expose raw HTTP errors to UI).
+- **Next.js 15:** `fetch` is no longer cached by default — set caching explicitly per request (`cache: "force-cache"` or `next: { revalidate }`) rather than relying on implicit caching.
 - This skill owns the frontend HTTP client; the backend `integration-generator` (external HTTP transport) must not duplicate it.
 - Do not generate TanStack Query hooks here — that is `data-generator`'s job.
 

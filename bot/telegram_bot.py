@@ -119,79 +119,35 @@ async def _edit_final(message, text: str):
 
 
 async def start(update: Update, _: ContextTypes.DEFAULT_TYPE):
+    """텔레그램 관례상 /start 는 봇 자체 환영 메시지. 명령 체계는 서버와 공유하는 /help 참고."""
     chat_id = update.effective_chat.id
     print(f"[/start] chat_id={chat_id}")
     await update.message.reply_text(
-        "안녕하세요! 스킬 기반 AI 에이전트입니다. 무엇이든 물어보세요.\n"
+        "안녕하세요! 스킬 기반 AI 에이전트입니다. 무엇이든 물어보세요.\n\n"
+        "명령어 (CLI 와 동일):\n"
+        "/help — 명령 도움말\n"
+        "/skills — 카테고리 스킬 목록\n"
+        "/soul [이름|off] — 페르소나 목록 / 변경 / 해제\n"
         "/reset — 대화 초기화\n"
-        "/soul — 페르소나 목록 / 변경 (예: /soul oliver, /soul off)\n"
-        f"(내 chat_id: {chat_id})"
+        "/<스킬명> [요청] — 스킬 직접 실행\n"
+        f"\n(내 chat_id: {chat_id})"
     )
 
 
-async def reset(update: Update, _: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if not _is_allowed(chat_id):
-        await update.message.reply_text("이 봇을 사용할 권한이 없습니다.")
-        return
-    session = _session_id(chat_id)
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(f"{AGENT_URL}/reset", json={"session": session}, headers=_headers())
-    except httpx.HTTPError:
-        pass
-    await update.message.reply_text("대화 기록을 초기화했습니다.")
-
-
-async def soul(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/soul            → 사용 가능한 페르소나 목록
-    /soul <이름>        → 이 채팅의 페르소나 변경
-    /soul off|none|해제 → 일반 모드로 되돌림"""
-    chat_id = update.effective_chat.id
-    if not _is_allowed(chat_id):
-        await update.message.reply_text("이 봇을 사용할 권한이 없습니다.")
-        return
-
-    args = context.args or []
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            # 인자 없음 → 목록 안내
-            if not args:
-                r = await client.get(f"{AGENT_URL}/souls", headers=_headers())
-                souls = r.json().get("souls", []) if r.status_code == 200 else []
-                listing = "\n".join(f"• {s}" for s in souls) or "(등록된 페르소나 없음)"
-                await update.message.reply_text(
-                    "사용 가능한 페르소나:\n" + listing
-                    + "\n\n변경: /soul <이름>\n일반 모드: /soul off"
-                )
-                return
-
-            # 변경 / 해제
-            name = "" if args[0].lower() in ("off", "none", "해제", "일반") else args[0]
-            r = await client.post(
-                f"{AGENT_URL}/soul",
-                json={"session": _session_id(chat_id), "name": name},
-                headers=_headers(),
-            )
-    except httpx.HTTPError as e:
-        await update.message.reply_text(f"⚠️ 서버 연결 실패: {e}")
-        return
-
-    if r.status_code == 200:
-        persona = r.json().get("persona")
-        msg = f"페르소나를 '{persona}' 로 변경했습니다." if persona else "일반 모드로 변경했습니다."
-        await update.message.reply_text(msg)
-    elif r.status_code == 404:
-        souls = r.json().get("souls", [])
-        listing = ", ".join(souls) or "(없음)"
-        await update.message.reply_text(f"그런 페르소나가 없습니다.\n사용 가능: {listing}")
-    else:
-        await update.message.reply_text(f"⚠️ 변경 실패 ({r.status_code}): {r.text[:200]}")
+async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/start 를 제외한 모든 슬래시 명령(/help·/skills·/soul·/reset·/<스킬>)을
+    그대로 에이전트 서버로 넘겨, CLI 와 동일한 명령 해석기가 처리하게 한다."""
+    await _run_agent(update, context, (update.message.text or "").strip())
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """일반 텍스트 메시지."""
+    await _run_agent(update, context, (update.message.text or "").strip())
+
+
+async def _run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """입력(일반 텍스트 또는 슬래시 명령)을 서버 /chat/stream 으로 보내고 응답을 표시한다."""
     chat_id = update.effective_chat.id
-    text = (update.message.text or "").strip()
     if not text:
         return
 
@@ -270,9 +226,11 @@ def main():
             "    bot/.env 의 TELEGRAM_ALLOWED_CHAT_IDS 에 그 값을 넣고 재시작하세요."
         )
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # /start 만 봇 네이티브(환영 메시지). 나머지 모든 명령은 서버로 포워딩해
+    # CLI 와 동일한 명령 해석기(commands.interpret)가 처리한다.
+    # (같은 그룹에선 먼저 등록된 매칭 핸들러 하나만 실행되므로 start 를 앞에 둔다.)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("soul", soul))
+    app.add_handler(MessageHandler(filters.COMMAND, on_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

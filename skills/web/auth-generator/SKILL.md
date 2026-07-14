@@ -69,6 +69,7 @@ Confirm no secrets are exposed and token/session handling is centralized and sec
 - Separate authentication (who you are) from authorization (what you can do).
 - Centralize token/session handling; JWT refresh must be transparent to callers.
 - For OAuth use PKCE and a dedicated callback route; for sessions use httpOnly cookies + CSRF.
+- **Next.js 15:** `cookies()`, `headers()`, and `draftMode()` from `next/headers` are async — always `await` them, and read/write the session cookie through the awaited `cookies()` store.
 
 # Examples
 

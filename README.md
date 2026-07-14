@@ -43,7 +43,10 @@ Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권�
 - **스킬**은 `skills/` 아래 **어느 깊이든** `SKILL.md` 파일이면 됩니다. 로더가 재귀적으로 찾습니다.
   frontmatter(`name`, `description`, `allowed-tools`)로 "언제 쓰는지"를 선언하고, 본문에 절차를 적습니다.
 - **카테고리**는 `skills/` 바로 밑 폴더명입니다. 예: `skills/web/form-generator/SKILL.md` → 카테고리 `web`.
-  `skills/foo/SKILL.md` 처럼 바로 밑에 있으면 카테고리는 `general`.
+  하위 스킬이 없는 `skills/foo/SKILL.md` 는 최상위 직속 스킬이라 카테고리 `general` 입니다.
+- **카테고리 대표 스킬** — 하위 스킬을 가진 카테고리 폴더 바로 밑에 `SKILL.md` 를 두면(`skills/review/SKILL.md`),
+  그 카테고리(`review`)의 **짧은 이름 진입점**이 됩니다. 긴 이름(`code-review-orchestrator`) 대신 `/review` 로 부를 수 있죠.
+  보통 frontmatter `invokes:` 로 카테고리의 실제 오케스트레이터에 위임합니다. (예시: `skills/review/`, `skills/research/`)
 - **2단계 스킬 탐색** — 스킬이 많을 때 설명을 전부 시스템 프롬프트에 넣으면 폭증하므로(예: 300개 ≈ 72KB),
   기본적으로 시스템 프롬프트엔 **카테고리 개요만** 싣습니다. 모델은 `list_skills(category)` 로 후보를 펼쳐 본 뒤
   `invoke_skill(name)` 으로 지침을 로드합니다. (스킬이 30개 이하면 전체 목록을 바로 노출 — `overview()` 임계값)
@@ -54,6 +57,10 @@ Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권�
   한 요청 안에서 동일 호출이 감지되면 재실행 없이 넛지를 반환하고, 3번째면 **도구를 제거한 채 최종 답변을
   강제 생성**해 루프를 끊습니다. (agent.ts)
 - **위험한 도구**(`write_file`, `run_shell`)는 실행 전 터미널에서 사용자 승인을 받습니다.
+- **작업 폴더(샌드박스)** — 에이전트의 파일 도구(`read_file`/`write_file`/`list_dir`)는 기본적으로
+  **실행 위치의 `workspaces/` 폴더 안에서만** 동작합니다(그 밖으로 나가는 경로는 차단). 산출물이 한곳에
+  모이고 저장소·`.env`·소스가 오염/유출되지 않습니다. 위치는 `WORKSPACE_DIR` 로 바꿀 수 있습니다
+  (상대경로는 실행 위치 기준, 절대경로도 가능). `workspaces/` 는 `.gitignore` 에 포함됩니다.
 
 ## 빠른 시작
 
@@ -96,6 +103,34 @@ npm run dev -- --session work    # 세션 지정 (대화가 .sessions/work.json 
 
 대화는 세션별로 `.sessions/<id>.json` 에 저장되어, 다시 실행하면 이어집니다. (기본 세션 `cli`)
 
+**명령어는 CLI·서버(텔레그램 봇)가 동일**합니다 (`src/commands.ts` 한 곳에서 해석). REPL/봇 공통:
+- `/help` — 명령 도움말
+- `/skills` — **카테고리 대표 스킬**(짧은 진입점)만 나열 (`SKILL_MODE=single` 이어도 표시)
+- `/soul [이름|off]` — 페르소나 목록 / 변경 / 해제 (세션에 영속)
+- `/reset` — 대화 초기화
+- `/<카테고리>` 또는 `/<스킬명> [요청]` (예: `/review`, `/research`) — 스킬 직접 실행
+- (CLI 전용) `/` 입력 후 Tab 자동완성, `exit`·`quit` 종료
+
+#### 페르소나(SOUL) 선택
+
+`souls/<이름>.md` 를 정체성으로 주입해 특정 페르소나로 실행합니다. 세 가지 형식을 지원합니다.
+
+```bash
+npm run dev -- --oliver          # 단축형 (macOS/Linux)
+npm run dev -- --persona oliver  # 값-인자형 (별칭: --soul oliver)
+npm run oliver                   # 전용 스크립트 (souls/oliver.md, souls/claire.md 용)
+```
+
+> **Windows PowerShell 주의** — PowerShell 은 `npm run dev -- --oliver` 의 단독 `--` 를 자체 토큰으로
+> 소비해버려 `--oliver` 가 스크립트까지 전달되지 않습니다. PowerShell 에서는 다음 중 하나를 쓰세요.
+>
+> ```powershell
+> npm run oliver                 # 권장: 플래그가 스크립트에 내장되어 -- 구분자 불필요
+> npx tsx src/index.ts --persona oliver   # npm 을 거치지 않고 직접 실행
+> ```
+>
+> 다른 페르소나용 전용 스크립트는 `package.json` 의 `scripts` 에 `"이름": "tsx src/index.ts --이름"` 형태로 추가하면 됩니다.
+
 ### 2) HTTP 서버 (외부 연동용)
 
 ```bash
@@ -129,10 +164,12 @@ python telegram_bot.py
 텔레그램 채팅별로 세션이 분리(`tg-<chat_id>`)되어 대화가 유지됩니다.
 봇은 서버의 `/chat` 을 호출할 뿐이라, 서버가 로컬 LLM을 쓰든 무엇을 쓰든 무관합니다.
 
-봇 명령어:
-- `/reset` — 대화 초기화
-- `/soul` — 페르소나 목록 보기 / `/soul <이름>` 변경 / `/soul off` 일반 모드
-  (페르소나는 채팅별로 서버에 저장되어 유지됩니다. `souls/<이름>.md` 로 추가.)
+봇 명령어는 **CLI 와 동일**합니다. `/start`(환영 메시지)만 봇 네이티브이고, 그 외 모든
+슬래시 명령(`/help`·`/skills`·`/soul`·`/reset`·`/<스킬명>`)은 서버로 전달되어 CLI 와 같은
+해석기(`src/commands.ts`)가 처리합니다.
+- `/help` — 명령 도움말   `/skills` — 카테고리 스킬 목록
+- `/soul [이름|off]` — 페르소나 목록 / 변경 / 해제 (채팅별 세션에 저장, `souls/<이름>.md` 로 추가)
+- `/reset` — 대화 초기화   `/<스킬명> [요청]` — 스킬 직접 실행
 
 봇은 서버의 `POST /chat/stream`(NDJSON) 을 구독해, 처리 중 도구 호출·계획 같은 **진행 상황을
 메시지 하나를 편집하며 실시간으로** 보여준 뒤 최종 답변으로 교체합니다. 최종 답변은
@@ -168,7 +205,8 @@ python telegram_bot.py
 `SKILL.md` 를 만들면 끝입니다. 재시작하면 자동 등록됩니다. 위치는 자유입니다:
 
 - 카테고리로 묶기: `skills/<카테고리>/<스킬>/SKILL.md` (권장, 카테고리 = `<카테고리>`)
-- 최상위 직속: `skills/<스킬>/SKILL.md` (카테고리 = `general`)
+- 카테고리 대표(짧은 이름 진입점): `skills/<카테고리>/SKILL.md` (하위 스킬이 있으면 카테고리 = `<카테고리>`)
+- 최상위 직속: `skills/<스킬>/SKILL.md` (하위 스킬 없음 → 카테고리 = `general`)
 
 ```markdown
 ---

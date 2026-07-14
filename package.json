@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
+    "oliver": "tsx src/index.ts --oliver",
+    "claire": "tsx src/index.ts --claire",
     "serve": "tsx src/server.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"

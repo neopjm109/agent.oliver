@@ -66,6 +66,7 @@ Confirm accessibility (labels/ARIA), pending-state handling, and consistency.
 - Use React Hook Form; register fields directly, `Controller` only when necessary.
 - Use Zod; infer types from schemas; keep validation centralized and declarative.
 - shadcn/ui form components; disable submit while pending; prevent duplicate submits.
+- **Next.js 15 / React 19:** for Server Action forms use `useActionState` and `useFormStatus` from `react-dom` — never the removed `useFormState`; client-only forms keep using React Hook Form.
 
 # Examples
 

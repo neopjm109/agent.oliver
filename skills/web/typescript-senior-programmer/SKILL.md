@@ -56,9 +56,11 @@ loading/error states are handled, and that no layer boundary is violated.
 
 # Rules
 
+- **Write TypeScript, never JavaScript.** Emit `.tsx` for any file containing JSX (components, pages, layouts, providers) and `.ts` for everything else (hooks, clients, stores, schemas, types, utils, tests as `.test.tsx`/`.test.ts`). Never emit `.js`, `.jsx`, `.mjs`, or `.cjs` source; config files use their TypeScript form (`next.config.ts`, `middleware.ts`, `tailwind.config.ts`). If a contract or existing file implies a `.js`/`.jsx` path, produce the `.ts`/`.tsx` equivalent instead.
 - Strict TypeScript; never use `any`; prefer inference and utility types.
 - Functional components only; extract reusable hooks; avoid unnecessary re-renders.
 - Follow App Router conventions; prefer Server Components, opt into Client only when required.
+- **Use Next.js 15+ / React 19 syntax, not pre-15 patterns.** `await` the Promise-typed `params`/`searchParams` and the async `cookies()`/`headers()`/`draftMode()`; import navigation hooks from `next/navigation`; use `useActionState`/`useFormStatus` (never `useFormState`); `ref` is a plain prop on function components (no `forwardRef` needed); never emit `getServerSideProps`/`getStaticProps`/`next/router`.
 - Use Tailwind CSS and shadcn/ui when available; no inline styles.
 - Semantic HTML and accessible labels/ARIA where needed.
 - Follow the conventions passed in the contract; do not invent structure.

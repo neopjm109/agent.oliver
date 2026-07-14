@@ -70,6 +70,7 @@ Delegate the `middleware.ts` to `typescript-senior-programmer`.
 - Read auth state from cookies/headers only; never decode long-lived secrets at the edge beyond token presence/verification.
 - Always scope the `matcher` to exclude `_next/*` and static assets to avoid intercepting every asset.
 - Prefer `NextResponse.redirect`/`rewrite`; return early to avoid unnecessary downstream work.
+- **Next.js 15:** if a runtime is declared use the stable `export const runtime = "edge"` (not `experimental-edge`); read cookies/headers via the `NextRequest` API, keeping the `matcher` statically analyzable.
 
 # Examples
 
