@@ -85,6 +85,17 @@ api_specification:
     - { code: INTERNAL_ERROR, http: 500 }
 ```
 
+# Derive from the ACTUAL requirements — never copy the examples
+
+The Inputs, Output, and Examples in this skill use an **illustrative sample domain**
+(e-commerce: orders, users). They show the *format*, not the content. Build every resource,
+endpoint, and DTO of `api_specification` from the **real `domain_model` and
+`unified_requirements` given in this conversation** — the actual product's aggregates,
+operations, and terms. Do **not** emit the sample endpoints (`/api/orders`, …) unless the
+provided requirements are genuinely about them. If your result exposes resources that map
+to no aggregate in the given domain model, you have copied the example — discard it and redo
+the work from the real inputs.
+
 # Workflow
 
 ## Step 1 — Map domain to API resources
@@ -133,6 +144,24 @@ Define base path and versioning strategy, authentication method and authorizatio
   (traceability).
 - The spec is complete only when all aggregates are exposed, endpoints and DTO contracts
   are defined, and security and error models are standardized.
+
+# Deliverable — also save a Markdown document
+
+`api_specification` above is the in-context, pipeline-facing form (consumed by downstream
+blueprint/validator/generator skills). You must **also persist the design as a
+human-readable Markdown document** so it is a usable deliverable on its own:
+
+- `write_file` to **`api-spec.md`** in the current working folder.
+- Write **Markdown**: headings, brief prose, and tables/bullet lists (an endpoint table is
+  ideal). **Never** dump raw YAML or a JavaScript-style object literal
+  (`api_specification = { ... }`) — that is not a document.
+- Cover every part of the artifact: base path & version, resources, endpoints
+  (method/path/operation), request & response DTO contracts with validation, routing,
+  security (authn/authz), and error models, keeping the requirement traceability
+  (FR-/NFR-/BR- refs).
+
+This is still design-only — a design *document*, not application code. Saving
+`api-spec.md` is a required step: the skill is **not complete** until that file exists.
 
 # Examples
 

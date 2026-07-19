@@ -76,6 +76,16 @@ architecture_design:
       refs: [NFR-1, NFR-2]
 ```
 
+# Derive from the ACTUAL requirements — never copy the examples
+
+The Inputs, Output, and Examples in this skill use an **illustrative sample domain**
+(e-commerce: catalog, orders). They show the *format*, not the content. Build every
+element of `architecture_design` from the **real `unified_requirements` given in this
+conversation** — the actual product's modules, terms, and constraints. Do **not** emit the
+sample domain (order/catalog/payment) unless the provided requirements are genuinely about
+it. If your result names modules or entities that never appear in the given requirements,
+you have copied the example — discard it and redo the work from the real inputs.
+
 # Workflow
 
 ## Step 1 — Analyze requirements
@@ -135,6 +145,23 @@ artifact with traceability back to requirements.
   non-functional requirement (traceability).
 - The design is complete only when style, layers, modules, communication model,
   scalability strategy, deployment model, and technology stack are all defined.
+
+# Deliverable — also save a Markdown document
+
+`architecture_design` above is the in-context, pipeline-facing form (consumed by
+downstream blueprint/validator/generator skills). You must **also persist the design as a
+human-readable Markdown document** so it is a usable deliverable on its own:
+
+- `write_file` to **`architecture.md`** in the current working folder.
+- Write **Markdown**: headings, brief prose, and tables/bullet lists. **Never** dump raw
+  YAML or a JavaScript-style object literal (`architecture_design = { ... }`) — that is not
+  a document.
+- Cover every part of the artifact: architecture style, layers, modules & responsibilities,
+  service boundaries, data flow, communication style, scalability strategy, deployment
+  model, technology stack, and the requirement traceability (FR-/NFR-/BR- refs).
+
+This is still design-only — a design *document*, not application code. Saving
+`architecture.md` is a required step: the skill is **not complete** until that file exists.
 
 # Examples
 

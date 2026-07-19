@@ -6,7 +6,7 @@ import { LLM } from "./llm.js";
 import { SkillRegistry } from "./skills.js";
 import { selectTools } from "./tools/index.js";
 import { Agent } from "./agent.js";
-import { PermissionGate, makeReadline } from "./permissions.js";
+import { PermissionGate, makeReadline, askMultiline } from "./permissions.js";
 import { SessionStore, sessionWorkspace } from "./session.js";
 import { loadSoul, listSouls, extractPersonaFlag } from "./soul.js";
 import { interpret, recentMessagesText, type CommandCtx } from "./commands.js";
@@ -192,6 +192,7 @@ async function main() {
   const footW = dispWidth("명령어"); // 하단 라벨 정렬 기준(가장 긴 라벨)
   console.log(`  ${c.dim(padEndDisp("명령어", footW))}  ${c.cyan("/help")} ${c.gray("/skills /soul /sessions /session /pwd /reset")}`);
   console.log(`  ${" ".repeat(footW)}  ${c.gray("/<스킬명> [요청] 직접 실행   ('/' 후 Tab 자동완성)")}`);
+  console.log(`  ${c.dim(padEndDisp("여러 줄", footW))}  ${c.gray("줄 끝에 \\  또는  ⌥(Option)+Enter 로 줄바꿈 · Enter 로 전송")}`);
   console.log(`  ${c.dim(padEndDisp("종료", footW))}  ${c.gray("exit / quit / Ctrl+C")}`);
   console.log();
 
@@ -243,7 +244,7 @@ async function main() {
   while (true) {
     let input: string;
     try {
-      input = (await rl.question("👤 ")).trim();
+      input = (await askMultiline(rl, { prompt: "👤 ", continuation: c.gray("… ") })).trim();
     } catch (err) {
       if (isAbort(err)) break; // Ctrl+C → 조용히 종료
       throw err;

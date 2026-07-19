@@ -54,3 +54,82 @@ export function makeReadline(skillNames: string[] = []): Interface {
     completer: skillNames.length ? makeSkillCompleter(skillNames) : undefined,
   });
 }
+
+/**
+ * 키 입력이 '전송 없이 줄바꿈'을 의미하는지 판별한다.
+ * 터미널은 기본적으로 Enter 와 Shift+Enter 를 같은 바이트(\r)로 보내 구분이 불가능하다.
+ * 다만 다음은 실측상 Node readline 이 안전하게 구분해 준다:
+ *  - Alt/Option+Enter → meta+return (거의 모든 터미널에서 바로 동작)
+ *  - kitty keyboard protocol 의 수식키+Enter → ESC[13;<mods>u (kitty·ghostty 등)
+ * modifyOtherKeys(ESC[27;2;13~)는 Node 파서가 "13~"를 본문에 흘려 오염시키므로 쓰지 않는다.
+ */
+function isNewlineKey(str: string | undefined, key: KeyEvent | undefined): boolean {
+  const seq = key?.sequence ?? str;
+  // 수식키(Alt/Shift/Ctrl) + Enter → 줄바꿈
+  if (key && (key.name === "return" || key.name === "enter") && (key.meta || key.shift || key.ctrl)) {
+    return true;
+  }
+  // kitty 프로토콜의 수식키+Enter (ESC[13;<mods>u). 수식키 없는 ESC[13u(=일반 Enter)는 제외.
+  if (typeof seq === "string" && /^\x1b\[13;\d+u$/.test(seq)) return true;
+  // 일부 터미널의 Alt+Enter 원문(ESC + CR/LF)
+  if (str === "\x1b\r" || str === "\x1b\n") return true;
+  return false;
+}
+
+interface KeyEvent {
+  name?: string;
+  ctrl?: boolean;
+  meta?: boolean;
+  shift?: boolean;
+  sequence?: string;
+}
+
+export interface MultilinePrompts {
+  /** 첫 줄 프롬프트 (예: "👤 ") */
+  prompt: string;
+  /** 이어지는 줄 프롬프트 (예: 흐린 "… ") */
+  continuation: string;
+}
+
+/**
+ * 여러 줄 입력을 읽는다. Enter 는 전송, 아래 두 방법으로 '전송 없이 줄바꿈' 가능:
+ *  1) 줄 끝에 백슬래시 `\` — 모든 터미널에서 100% 동작(한글·Tab 자동완성 그대로).
+ *     끝의 `\\`(두 개)는 리터럴 백슬래시 한 개로 처리.
+ *  2) Option(⌥)+Enter (또는 kitty 계열의 Shift+Enter) — 터미널이 구분 시퀀스를 보내면 자동 감지.
+ *
+ * readline 라인 모드를 유지하므로 한글 IME 조합 입력이 깨지지 않는다.
+ */
+export async function askMultiline(rl: Interface, prompts: MultilinePrompts): Promise<string> {
+  const isTTY = !!process.stdin.isTTY;
+  let forceNewline = false;
+  // 줄바꿈 키가 오면 현재 줄을 강제 제출하고(=readline 자체로는 제출되지 않음) 이어읽기 플래그를 세운다.
+  const onKeypress = (str: string | undefined, key: KeyEvent | undefined) => {
+    if (isNewlineKey(str, key)) {
+      forceNewline = true;
+      rl.write(null as unknown as string, { name: "return" });
+    }
+  };
+  if (isTTY) process.stdin.prependListener("keypress", onKeypress);
+
+  const lines: string[] = [];
+  try {
+    while (true) {
+      const line = await rl.question(lines.length === 0 ? prompts.prompt : prompts.continuation);
+      if (forceNewline) {
+        forceNewline = false;
+        lines.push(line);
+        continue;
+      }
+      // 백슬래시 연속: 끝이 `\`(단, `\\`는 리터럴)면 다음 줄로 이어간다.
+      if (line.endsWith("\\") && !line.endsWith("\\\\")) {
+        lines.push(line.slice(0, -1));
+        continue;
+      }
+      lines.push(line.endsWith("\\\\") ? line.slice(0, -1) : line);
+      break;
+    }
+  } finally {
+    if (isTTY) process.stdin.removeListener("keypress", onKeypress);
+  }
+  return lines.join("\n");
+}

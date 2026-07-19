@@ -2,15 +2,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Agent, artifactFilename, pad2, maxArtifactSeq } from "../src/agent.js";
+import { looksLikeStall } from "../src/agent-utils.js";
 import { SkillRegistry } from "../src/skills.js";
 import { defaultTools } from "../src/tools/index.js";
+import { writeFileTool } from "../src/tools/fs.js";
 import type { Tool } from "../src/tools/types.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = resolve(here, "fixtures/skills");
+
+// 각 에이전트에 격리된 빈 작업 폴더를 준다. 예전엔 cwd 로 process.cwd()(레포 루트)를 썼는데,
+// 새 '토픽 하위폴더 자동 생성'이 실제 폴더를 만들어 레포 루트를 오염시키고 테스트끼리 간섭했다.
+// 호출마다 고유 임시 폴더를 발급하고, 프로세스 종료 시 통째로 정리한다.
+const TEST_ROOT = mkdtempSync(resolve(tmpdir(), "agent-test-"));
+process.on("exit", () => {
+  try {
+    rmSync(TEST_ROOT, { recursive: true, force: true });
+  } catch {
+    /* 정리 실패는 무시 */
+  }
+});
+let cwdSeq = 0;
+function freshCwd(): string {
+  const d = resolve(TEST_ROOT, `cwd-${cwdSeq++}`);
+  mkdirSync(d, { recursive: true });
+  return d;
+}
 
 /** 스크립트된 응답을 순서대로 반환하고, 각 호출의 tool 개수를 기록하는 가짜 LLM */
 class FakeLLM {
@@ -69,7 +89,7 @@ function makeAgent(responses: any[], tools: Tool[] = [echoTool], maxSteps = 10) 
     llm: llm as any,
     tools,
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps, maxDepth: 3, contextMaxChars: 1e9 } as any,
+    config: { cwd: freshCwd(), maxSteps, maxDepth: 3, contextMaxChars: 1e9 } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -104,6 +124,50 @@ test("동일 호출 반복 → 재실행 억제 + 3번째에 도구 없이 강�
   assert.equal(await agent.run("go"), "강제 최종 답변");
   assert.equal(echoRuns, 1); // 첫 호출만 실제 실행
   assert.equal(llm.calls.at(-1)!.toolCount, 0); // 마지막 호출은 도구 없이
+});
+
+test("forceFinal: 강제-최종 호출이 컨텍스트 초과로 실패해도 compact 재시도로 마무리한다", async () => {
+  // 루프가 길게 돌다 감지됐을 때 히스토리가 커서 강제-최종 호출마저 컨텍스트 초과로 죽던 문제.
+  // 이제 forceFinalAnswer 도 compact + 재시도를 태워 턴을 크래시시키지 않고 마무리한다.
+  echoRuns = 0;
+  const same = { x: "a" };
+  let n = 0;
+  const llm = {
+    async complete(_m: any[], _tools: any[]) {
+      n++;
+      if (n <= 3) {
+        // 동일 인자 echo 3회 → 반복 억제 → 3번째에 forceFinal
+        return {
+          role: "assistant",
+          content: null,
+          refusal: null,
+          tool_calls: [{ id: `c${n}`, type: "function", function: { name: "echo", arguments: JSON.stringify(same) } }],
+        };
+      }
+      if (n === 4) {
+        // 강제-최종 호출(도구 없음)이 컨텍스트 초과로 1회 실패
+        const e: any = new Error("400");
+        e.error = "context length exceeded";
+        throw e;
+      }
+      return { role: "assistant", content: "루프를 멈추고 지금까지 결과를 정리했습니다.", refusal: null };
+    },
+    async completeStream(m: any[], tools: any[]) {
+      return this.complete(m, tools);
+    },
+  };
+  const agent = new Agent({
+    llm: llm as any,
+    tools: [echoTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd: freshCwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 24000 } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+  const out = await agent.run("go");
+  assert.equal(out, "루프를 멈추고 지금까지 결과를 정리했습니다.");
+  assert.equal(echoRuns, 1, "첫 호출만 실행(반복은 억제)");
+  assert.ok(n >= 5, "강제-최종 호출이 컨텍스트 초과 후 재시도로 복구해야 함");
 });
 
 test("크로스턴 반복: 직전 턴과 같은 무-도구 응답을 반복하면 교정 지시 후 재시도", async () => {
@@ -192,7 +256,7 @@ test("spawn_agent: 서브에이전트에 상위 작업 목표를 배경으로 �
     llm: llm as any,
     tools: defaultTools,
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, subagentInheritContext: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, subagentInheritContext: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -215,7 +279,7 @@ test("spawn_agent: subagentInheritContext=false 면 상위 맥락을 넘기지 �
     llm: llm as any,
     tools: defaultTools,
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, subagentInheritContext: false } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, subagentInheritContext: false } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -303,7 +367,7 @@ test("컨텍스트 초과 시 오래된 대화를 요약해 유지 (compact)", a
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 3000, contextSummarize: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 3000, contextSummarize: true } as any,
     requestPermission: async () => true,
     log: () => {},
     history: bigHistory(),
@@ -320,7 +384,7 @@ test("contextSummarize=false 면 요약 없이 절삭 (추가 LLM 호출 없음)
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 3000, contextSummarize: false } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 3000, contextSummarize: false } as any,
     requestPermission: async () => true,
     log: () => {},
     history: bigHistory(),
@@ -329,6 +393,51 @@ test("contextSummarize=false 면 요약 없이 절삭 (추가 LLM 호출 없음)
   assert.equal(out, "최종");
   assert.equal(agent.getSummary(), ""); // 요약 안 함
   assert.equal(llm.calls[0].toolCount, 1); // 첫 호출 = 메인(요약 호출 없음)
+});
+
+test("planFirst: 사전 계획 호출 직전에 compact 해 긴 히스토리를 예산 내로 줄여 보낸다", async () => {
+  // 예전엔 선처리 진입부에서 compact 했는데, 그 뒤 스킬 지침이 주입돼 planFirst 가 예산 초과
+  // 메시지를 그대로 보낼 수 있었다. 이제 compact 를 planFirst 직전으로 옮겨, 계획 호출이 항상
+  // 압축된(예산 내) 히스토리를 받는다. (WD 스냅샷 노이즈를 피하려 빈 임시 폴더를 cwd 로 쓴다.)
+  const planTool = defaultTools.find((t) => t.name === "update_plan")!;
+  const dir = mkdtempSync(resolve(tmpdir(), "planfirst-compact-"));
+  try {
+    const llm = new FakeLLM([
+      text("1"), // classifyTurn → 작업(계획 필요)
+      toolCall("update_plan", PLAN), // planFirst 계획 호출
+      text("완료"), // 메인 루프
+    ]);
+    const agent = new Agent({
+      llm: llm as any,
+      tools: [planTool, echoTool],
+      skills: SkillRegistry.load(FIX),
+      // 절삭 모드(요약 없음) + 작은 예산 + 큰 히스토리 → compact 가 오래된 메시지를 버려야 함
+      config: {
+        cwd: dir,
+        maxSteps: 5,
+        maxDepth: 3,
+        contextMaxChars: 3000,
+        contextSummarize: false,
+        autoPlan: true,
+      } as any,
+      requestPermission: async () => true,
+      log: () => {},
+      history: bigHistory(), // ~6.5k자 (예산 3000 초과)
+    });
+    assert.equal(await agent.run("여러 단계로 작업을 수행해줘"), "완료");
+    // 계획 호출(도구 1개=update_plan 만 노출)의 비-system 메시지 총량이 예산 근처로 압축됐는지 확인.
+    // planFirst 가 압축하지 않았다면 원본 히스토리(~6.5k)가 그대로 실려 4000 을 크게 넘는다.
+    const planCall = llm.calls.find((c) => c.toolCount === 1)!;
+    const nonSystemChars = planCall.messages
+      .filter((m: any) => m.role !== "system")
+      .reduce((n: number, m: any) => n + (typeof m.content === "string" ? m.content.length : 0), 0);
+    assert.ok(
+      nonSystemChars < 4000,
+      `계획 호출이 압축된 히스토리를 받아야 함 (실제 ${nonSystemChars}자)`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("컨텍스트 초과 에러가 나면 예산을 줄여 재시도하고 복구한다", async () => {
@@ -351,7 +460,7 @@ test("컨텍스트 초과 에러가 나면 예산을 줄여 재시도하고 복�
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
     requestPermission: async () => true,
     log: () => {},
     history: bigHistory(),
@@ -382,7 +491,7 @@ test("HTTP 500 이라도 히스토리가 작으면 예산을 붕괴시키지 않
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
     requestPermission: async () => true,
     log: (m) => logs.push(m),
     history: bigHistory(), // ~6.5k자 < 예산*0.6 → 컨텍스트 문제 아님
@@ -408,7 +517,7 @@ test("컨텍스트 초과가 계속되면(더 줄일 수 없음) 실행 가능�
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 24000 } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -436,7 +545,7 @@ function routerAgent(responses: any[], skillsDir: string) {
     llm: llm as any,
     tools: [echoTool],
     skills: SkillRegistry.load(skillsDir),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, skillRouter: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, skillRouter: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -511,13 +620,88 @@ test("스킬 라우터: 문장 중간의 기존작업 이어가기 참조('~진�
   }
 });
 
+/** skillRouter + autoPlan 을 함께 켠 에이전트 (프로덕션 기본값 — 병합 분류 경로 검증용). */
+function routerPlanAgent(responses: any[], skillsDir: string) {
+  const llm = new FakeLLM(responses);
+  const agent = new Agent({
+    llm: llm as any,
+    tools: defaultTools,
+    skills: SkillRegistry.load(skillsDir),
+    config: {
+      cwd: freshCwd(),
+      maxSteps: 5,
+      maxDepth: 3,
+      contextMaxChars: 1e9,
+      skillRouter: true,
+      autoPlan: true,
+    } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+  return { agent, llm };
+}
+
+test("병합 분류(라우터+계획): 스킬 번호 하나로 라우팅과 계획을 함께 처리 (분류 1회만)", async () => {
+  const dir = makeRouterSkillsDir();
+  try {
+    // classifyTurn 이 "1"(=blueprint) 하나만 반환 → 라우팅 + planFirst 까지 이어진다.
+    // 예전엔 classifySkill(1회) + needsPlan(스킬 매칭 시 단락되긴 함) 이었지만, 매칭 실패 경로에선 2회였다.
+    const { agent, llm } = routerPlanAgent(
+      [text("1"), toolCall("update_plan", PLAN), text("완료")],
+      dir,
+    );
+    const out = await agent.run("주식 MTS 시스템을 만들고 싶어. 설계가 필요해.");
+    assert.equal(out, "완료");
+    assert.ok(agent.getUsedSkills().includes("blueprint"), "라우팅된 스킬이 기록돼야 함");
+    assert.equal(llm.calls[0].toolCount, 0, "1번째 = 단일 분류(도구 없음)");
+    assert.equal(llm.calls[1].toolCount, 1, "2번째 = 사전 계획(update_plan 만) — 중복 분류 없이 곧장 계획");
+    assert.ok(llm.calls[2].toolCount > 1, "3번째 = 메인 루프(전체 도구)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("병합 분류(라우터+계획): 0(대화) 이면 라우팅도 계획도 안 하고 분류 1회로 끝", async () => {
+  const dir = makeRouterSkillsDir();
+  try {
+    const { agent, llm } = routerPlanAgent([text("0"), text("그건 UI 개념입니다.")], dir);
+    const out = await agent.run("리액트가 뭐야?");
+    assert.equal(out, "그건 UI 개념입니다.");
+    assert.equal(agent.getUsedSkills().length, 0, "대화면 스킬 로드 안 함");
+    assert.equal(llm.calls.length, 2, "분류 1회 + 메인 1회 (중복 분류·계획 턴 없음)");
+    assert.equal(llm.calls[0].toolCount, 0);
+    const mainMsgs = llm.calls[1].messages;
+    assert.ok(!mainMsgs.some((m: any) => typeof m.content === "string" && m.content.includes("지금 할 단계")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("병합 분류(라우터+계획): 맞는 스킬 없어도 실제 작업(N+1)이면 라우팅 없이 계획", async () => {
+  const dir = makeRouterSkillsDir();
+  try {
+    // 후보 1개(blueprint) → N=1, 작업(스킬 없음) 번호 = 2. 라우팅은 안 하되 계획은 세운다.
+    const { agent, llm } = routerPlanAgent(
+      [text("2"), toolCall("update_plan", PLAN), text("완료")],
+      dir,
+    );
+    const out = await agent.run("로그 파일 100개를 정리해서 CSV 로 합쳐줘");
+    assert.equal(out, "완료");
+    assert.equal(agent.getUsedSkills().length, 0, "스킬 없음(N+1) → 라우팅 안 함");
+    assert.equal(llm.calls[0].toolCount, 0, "1번째 = 단일 분류");
+    assert.equal(llm.calls[1].toolCount, 1, "2번째 = 사전 계획(계획은 세움)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function autoPlanAgent(responses: any[], maxSteps = 10) {
   const llm = new FakeLLM(responses);
   const agent = new Agent({
     llm: llm as any,
     tools: defaultTools,
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    config: { cwd: freshCwd(), maxSteps, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -531,13 +715,38 @@ const PLAN = {
   ],
 };
 
+test("autoPlan: 인사·짧은 입력은 계획을 세우지 않는다(분류 호출도 없음)", async () => {
+  // "안녕?" 같은 트리비얼 입력 → needsPlan 이 LLM 호출 없이 건너뜀 → 사전 계획 없이 곧장 답변.
+  const { agent, llm } = autoPlanAgent([text("안녕하세요!")]);
+  assert.equal(await agent.run("안녕?"), "안녕하세요!");
+  // 유일한 호출 = 메인 루프(전체 도구 노출). 사전 분류·계획 턴이 없어야 한다.
+  assert.equal(llm.calls.length, 1);
+  assert.ok(llm.calls[0].toolCount > 1);
+  const msgs = llm.calls[0].messages;
+  assert.ok(!msgs.some((m: any) => typeof m.content === "string" && m.content.includes("지금 할 단계")));
+});
+
+test("autoPlan: 대화형으로 분류(0)된 입력은 계획을 세우지 않는다", async () => {
+  // 비-트리비얼이지만 단순 질문 → needsPlan 분류가 "0" → 사전 계획 생략, 곧장 답변.
+  const { agent, llm } = autoPlanAgent([text("0"), text("리액트는 UI 라이브러리입니다.")]);
+  assert.equal(await agent.run("리액트가 뭐야?"), "리액트는 UI 라이브러리입니다.");
+  assert.equal(llm.calls.length, 2); // needsPlan 분류 + 메인 루프 (계획 턴 없음)
+  assert.equal(llm.calls[0].toolCount, 0); // 분류 호출(도구 없음)
+  assert.ok(llm.calls[1].toolCount > 1); // 메인 루프
+  const msgs = llm.calls[1].messages;
+  assert.ok(!msgs.some((m: any) => typeof m.content === "string" && m.content.includes("지금 할 단계")));
+});
+
 test("autoPlan: 시작 시 update_plan 만 노출한 사전 계획 턴을 먼저 돈다", async () => {
-  const { agent, llm } = autoPlanAgent([toolCall("update_plan", PLAN), text("완료")]);
+  // 비-트리비얼 입력 → needsPlan 분류(도구 0개) 1회 → 사전 계획 → 메인 루프 순.
+  const { agent, llm } = autoPlanAgent([text("1"), toolCall("update_plan", PLAN), text("완료")]);
   assert.equal(await agent.run("여러 단계 작업"), "완료");
-  // 첫 호출 = 사전 계획(update_plan 하나만 노출)
-  assert.equal(llm.calls[0].toolCount, 1);
+  // 첫 호출 = needsPlan 분류(도구 없음)
+  assert.equal(llm.calls[0].toolCount, 0);
+  // 둘째 호출 = 사전 계획(update_plan 하나만 노출)
+  assert.equal(llm.calls[1].toolCount, 1);
   // 이후 메인 루프 = 전체 도구 노출
-  assert.ok(llm.calls[1].toolCount > 1);
+  assert.ok(llm.calls[2].toolCount > 1);
 });
 
 test("autoPlan: 메인 루프에 현재 계획 리마인더가 주입된다", async () => {
@@ -558,12 +767,12 @@ test("autoPlan: 리마인더는 히스토리에 영구 저장되지 않는다", 
 });
 
 test("autoPlan: 모델이 계획을 안 세워도 정상 진행", async () => {
-  // 사전 계획 턴에서 계획 대신 그냥 텍스트를 반환하는 경우
-  const { agent, llm } = autoPlanAgent([text("계획 없음"), toolCall("echo_missing", {}), text("답변")]);
-  const out = await agent.run("작업");
+  // needsPlan("1") → 사전 계획 턴에서 계획 대신 그냥 텍스트를 반환하는 경우
+  const { agent, llm } = autoPlanAgent([text("1"), text("계획 없음"), toolCall("echo_missing", {}), text("답변")]);
+  const out = await agent.run("여러 단계 작업");
   assert.equal(out, "답변");
   // 계획이 없으므로 메인 루프엔 리마인더가 없어야 한다
-  const mainMsgs = llm.calls[1].messages;
+  const mainMsgs = llm.calls.at(-1)!.messages;
   assert.ok(!mainMsgs.some((m: any) => typeof m.content === "string" && m.content.includes("지금 할 단계")));
 });
 
@@ -584,6 +793,34 @@ test("autoPlan: 계획이 남았는데 작업 없이 되묻기로 끝내려 하�
   );
 });
 
+test("autoPlan: 계획이 남아도 완료 요약으로 끝나면(하겠다 서술 아님) 재시도를 밀어붙이지 않는다", async () => {
+  // 모델이 작업을 다 했지만 update_plan 으로 완료 표시를 안 해 planRemaining=true 인 상황.
+  // 예전엔 무조건 '다음 단계 수행'을 밀어붙여 이미 한 작업을 다시 시켰다(같은 동작 반복).
+  // 이제 최종 문장이 중도 멈춤 신호(looksLikeStall)일 때만 밀어붙인다.
+  const planTool = defaultTools.find((t) => t.name === "update_plan")!;
+  echoRuns = 0;
+  const llm = new FakeLLM([
+    toolCall("update_plan", { steps: [{ content: "a", status: "in_progress" }, { content: "b", status: "pending" }] }),
+    toolCall("echo", { x: 1 }), // 실제 작업 수행(calledTool=true)
+    text("요청하신 작업을 모두 마쳤습니다. 결과 파일을 저장했습니다."), // 완료 요약(하겠다/되묻기 아님)
+  ]);
+  const agent = new Agent({
+    llm: llm as any,
+    tools: [planTool, echoTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd: freshCwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+  assert.equal(await agent.run("작업"), "요청하신 작업을 모두 마쳤습니다. 결과 파일을 저장했습니다.");
+  assert.equal(echoRuns, 1, "작업을 한 번만 수행해야 함(재시도로 반복 안 함)");
+  // 교정 지시가 주입되지 않았어야 한다
+  const injected = llm.calls.some((c) =>
+    c.messages.some((m: any) => m.role === "user" && typeof m.content === "string" && m.content.includes("이미 끝낸 작업")),
+  );
+  assert.ok(!injected, "완료 요약엔 다음 단계 수행 지시를 주입하면 안 됨");
+});
+
 test("autoPlan: 계획을 모두 완료하고 끝내면 중도 멈춤으로 오인하지 않는다", async () => {
   const planTool = defaultTools.find((t) => t.name === "update_plan")!;
   const llm = new FakeLLM([
@@ -595,7 +832,7 @@ test("autoPlan: 계획을 모두 완료하고 끝내면 중도 멈춤으로 오�
     llm: llm as any,
     tools: [planTool, echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -619,7 +856,7 @@ test("autoPlan: 작업하다 계획이 남았는데 서술만 하고 끝내면 �
     llm: llm as any,
     tools: [planTool, echoTool],
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -627,15 +864,45 @@ test("autoPlan: 작업하다 계획이 남았는데 서술만 하고 끝내면 �
   assert.equal(await agent.run("작업"), "정말 끝");
 });
 
+test("autoPlan: 계획 완료 후 '최종 답변 작성' 넛지는 한 번만 주입한다(완료 상태 반복 주입 방지)", async () => {
+  const planTool = defaultTools.find((t) => t.name === "update_plan")!;
+  echoRuns = 0;
+  const llm = new FakeLLM([
+    text("1"), // classifyTurn → 작업
+    toolCall("update_plan", { steps: [{ content: "a", status: "completed" }] }), // planFirst → 이미 전부 완료
+    toolCall("echo", { x: 1 }), // 완료 후 스텝1 (넛지 1회 주입됨)
+    toolCall("echo", { x: 2 }), // 완료 후 스텝2 (넛지 반복 주입 안 함)
+    text("최종"),
+  ]);
+  const agent = new Agent({
+    llm: llm as any,
+    tools: [planTool, echoTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd: freshCwd(), maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+  assert.equal(await agent.run("여러 단계로 작업을 수행해줘"), "최종");
+  assert.equal(echoRuns, 2, "완료 후 도구 호출은 그대로 실행돼야 함");
+  const nudged = llm.calls.filter((c) =>
+    c.messages.some(
+      (m: any) =>
+        m.role === "user" && typeof m.content === "string" && m.content.includes("모든 단계를 완료했습니다"),
+    ),
+  );
+  assert.equal(nudged.length, 1, "완료 넛지는 여러 스텝에 걸쳐도 한 번만 주입돼야 함");
+});
+
 test("autoPlan: update_plan 만 3턴 연속이면 도구 없이 최종 답변 강제", async () => {
   const { agent, llm } = autoPlanAgent([
+    text("1"), // needsPlan
     toolCall("update_plan", { steps: [{ content: "a", status: "in_progress" }] }), // planFirst
     toolCall("update_plan", { steps: [{ content: "a", status: "completed" }] }), // streak 1
     toolCall("update_plan", { steps: [{ content: "a", status: "completed" }, { content: "b", status: "in_progress" }] }), // streak 2
     toolCall("update_plan", { steps: [{ content: "a", status: "completed" }, { content: "b", status: "completed" }] }), // streak 3 → forceFinal
     text("강제 최종 답변"),
   ]);
-  assert.equal(await agent.run("작업"), "강제 최종 답변");
+  assert.equal(await agent.run("여러 단계 작업"), "강제 최종 답변");
   assert.equal(llm.calls.at(-1)!.toolCount, 0); // 마지막 강제 답변은 도구 없이
 });
 
@@ -659,7 +926,7 @@ function autoSaveAgent(responses: any[], tools: Tool[]) {
     llm: llm as any,
     tools,
     skills: SkillRegistry.load(FIX),
-    config: { cwd: process.cwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, autoPlan: false, autoSaveArtifacts: true } as any,
+    config: { cwd: freshCwd(), maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, autoPlan: false, autoSaveArtifacts: true } as any,
     requestPermission: async () => true,
     log: () => {},
   });
@@ -676,6 +943,18 @@ test("artifactFilename: 헤더에서 파일명 유도 + 타임스탬프", () => 
 test("artifactFilename: 이모지·괄호·기호를 제거한다", () => {
   const fn = artifactFilename("# 🤖 프로젝트 핵심 (Core)\n본문", new Date("2026-07-13T09:30:00Z"));
   assert.equal(fn, "프로젝트-핵심-Core-2026-07-13T09-30-00.md");
+});
+
+test("looksLikeStall: 하겠다·되묻기는 중도 멈춤, 완료 요약은 아님", () => {
+  // 중도 멈춤(밀어붙일 대상)
+  assert.ok(looksLikeStall("다음 단계를 진행하겠습니다"));
+  assert.ok(looksLikeStall("이제 로그인 페이지를 만들겠습니다."));
+  assert.ok(looksLikeStall("어디서부터 시작할까요? 알려주시면 진행하겠습니다."));
+  assert.ok(looksLikeStall("어떤 방식으로 할까요?"));
+  // 완료 요약(밀어붙이면 안 됨)
+  assert.ok(!looksLikeStall("요청하신 작업을 모두 마쳤습니다. 결과 파일을 저장했습니다."));
+  assert.ok(!looksLikeStall("스도쿠 페이지를 만들었습니다. app/page.tsx 에 저장했습니다."));
+  assert.ok(!looksLikeStall(""));
 });
 
 test("pad2: 두 자리 0 채움", () => {
@@ -699,6 +978,78 @@ test("maxArtifactSeq: 폴더의 NN- 접두 최대 번호 (없으면 0)", () => {
   }
 });
 
+test("토픽 폴더: 새 작업마다 NN-slug 하위폴더를 발급하고 이어가기는 재사용한다", async () => {
+  const dir = freshCwd();
+  const plan = { steps: [{ content: "s1", status: "in_progress" }] };
+  const llm = new FakeLLM([
+    text("1"), // 1턴: 작업으로 분류
+    toolCall("update_plan", plan), // planFirst
+    text("작업1 완료"), // 메인 루프 최종
+    text("이어서 완료"), // 2턴(이어가기): 분류·planFirst 없이 최종만
+    text("1"), // 3턴: 작업으로 분류
+    toolCall("update_plan", plan), // planFirst
+    text("작업2 완료"), // 메인 루프 최종
+  ]);
+  const agent = new Agent({
+    llm: llm as any,
+    tools: [echoTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd: dir, maxSteps: 5, maxDepth: 3, contextMaxChars: 1e9, autoPlan: true } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+
+  await agent.run("여러 단계로 블루프린트를 설계해줘");
+  const wd1 = agent.getWorkdir();
+  assert.match(wd1, /^01-/, "첫 작업은 01- 토픽 폴더를 발급");
+  assert.ok(existsSync(resolve(dir, wd1)), "토픽 폴더가 실제로 생성됨");
+
+  await agent.run("계속"); // 이어가기 → 같은 폴더 유지
+  assert.equal(agent.getWorkdir(), wd1, "이어가기 턴은 새 폴더를 만들지 않음");
+
+  await agent.run("이번엔 데이터 분석을 여러 단계로 해줘");
+  const wd2 = agent.getWorkdir();
+  assert.match(wd2, /^02-/, "다음 새 작업은 02- 토픽 폴더");
+  assert.notEqual(wd2, wd1, "새 작업은 이전 토픽과 분리됨");
+});
+
+test("토픽 폴더: 다른 곳(입력)에 있는 .md 언급은 이어가기가 아니라 새 작업으로 분리한다(교차 오염 방지)", async () => {
+  const dir = freshCwd();
+  // 새 작업의 입력 파일을 워크스페이스에 배치 (예: 두 번째 PRD)
+  mkdirSync(resolve(dir, "prd"), { recursive: true });
+  writeFileSync(resolve(dir, "prd/2-nestjs.md"), "# nestjs PRD");
+
+  const plan = { steps: [{ content: "s1", status: "in_progress" }] };
+  const llm = new FakeLLM([
+    text("1"), // 1턴: 작업으로 분류
+    toolCall("update_plan", plan), // planFirst
+    toolCall("write_file", { path: "architecture.md", content: "# arch" }), // 01 폴더에 .md 산출물
+    text("작업1 완료"),
+    text("1"), // 2턴: (이어가기로 오인 안 돼야) 작업 분류에 도달
+    toolCall("update_plan", plan), // planFirst
+    text("작업2 완료"),
+  ]);
+  const agent = new Agent({
+    llm: llm as any,
+    tools: [writeFileTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd: dir, maxSteps: 6, maxDepth: 2, contextMaxChars: 1e9, autoPlan: true } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+
+  await agent.run("여러 단계로 블루프린트를 설계해줘");
+  const wd1 = agent.getWorkdir();
+  assert.match(wd1, /^01-/, "첫 작업은 01- 토픽 폴더");
+  assert.ok(existsSync(resolve(dir, wd1, "architecture.md")), "01 폴더에 .md 산출물 생성");
+
+  // 확장자(.md)만 겹치지만 언급 파일이 다른 곳의 '입력'이라 이어가기가 아니어야 함 → 새 02 폴더
+  await agent.run("prd/2-nestjs.md 를 읽고 요구된 산출물을 모두 만들어줘");
+  const wd2 = agent.getWorkdir();
+  assert.match(wd2, /^02-/, "입력 .md 언급은 새 작업 → 02 폴더로 분리");
+  assert.notEqual(wd2, wd1, "새 작업은 이전 토픽과 섞이지 않음");
+});
+
 test("autoSave: 긴 문서형 답변을 write_file 로 자동 저장하고 경로를 덧붙인다", async () => {
   const { tool, saved } = makeCapturingWrite();
   const out = await autoSaveAgent([text(LONG_DOC)], [tool]).run("설계서 작성");
@@ -706,6 +1057,24 @@ test("autoSave: 긴 문서형 답변을 write_file 로 자동 저장하고 경�
   assert.match(saved[0].path!, /^01-.*\.md$/); // 두 자리 순번 접두 + .md
   assert.equal(saved[0].content, LONG_DOC.trim()); // 앞뒤 공백은 다듬어 저장
   assert.match(out, /산출물을 파일로 저장/);
+});
+
+test("autoSave: 사용자가 저장을 거부하면(denied) 저장 안내를 붙이지 않는다", async () => {
+  // 문자열 문구가 아니라 ToolResult.denied 로 거부를 판별하는지 검증(문구가 바뀌어도 안 깨지도록).
+  const attempts: unknown[] = [];
+  const deniedWrite: Tool = {
+    name: "write_file",
+    description: "stub",
+    parameters: { type: "object", properties: { path: {}, content: {} }, required: ["path", "content"] },
+    async run(args) {
+      attempts.push(args.path);
+      return { content: "임의의 거부 문구(문자열 매칭에 의존하지 않음)", denied: true };
+    },
+  };
+  const out = await autoSaveAgent([text(LONG_DOC)], [deniedWrite]).run("설계서 작성");
+  assert.equal(attempts.length, 1, "자동 저장을 시도(write_file 호출)는 해야 함");
+  assert.doesNotMatch(out, /산출물을 파일로 저장/, "거부됐으면 저장 안내를 붙이면 안 됨");
+  assert.equal(out, LONG_DOC.trim(), "답변 본문은 그대로 반환");
 });
 
 test("autoSave: 짧은 답변은 저장하지 않는다", async () => {
@@ -817,4 +1186,47 @@ test("exportHistory 는 system 을 제외한다", async () => {
   const hist = agent.exportHistory();
   assert.ok(hist.every((m) => m.role !== "system"));
   assert.equal(hist[0].role, "user");
+});
+
+// ── #5: 방금 만든 산출물을 가리키는 후속을 '이어가기'로 판정(새 폴더·재라우팅 방지) ──
+function makeBareAgent(cwd: string) {
+  return new Agent({
+    llm: new FakeLLM([]) as any,
+    tools: [echoTool],
+    skills: SkillRegistry.load(FIX),
+    config: { cwd, maxSteps: 10, maxDepth: 3, contextMaxChars: 1e9 } as any,
+    requestPermission: async () => true,
+    log: () => {},
+  });
+}
+
+test("continuesCurrentTopic: 현재 토픽 폴더 산출물을 가리키는 후속은 이어가기(#5)", () => {
+  const cwd = freshCwd();
+  const a = makeBareAgent(cwd) as any;
+  const topic = resolve(cwd, "01-blueprint");
+  mkdirSync(topic, { recursive: true });
+  for (const f of ["architecture.md", "database.md", "domain-model.md"]) {
+    writeFileSync(resolve(topic, f), "x");
+  }
+  a.workdir = "01-blueprint";
+
+  // 아직 안 만든 형제 파일(api-spec.md) 교정 후속 → 같은 확장자 → 이어가기 (벤치 turn2 재현)
+  assert.equal(a.continuesCurrentTopic("api-spec.md가 생성이 안된걸로 보여지는데 확인 필요"), true);
+  // 이미 있는 파일 직접 언급 → 이어가기
+  assert.equal(a.continuesCurrentTopic("architecture.md 좀 고쳐줘"), true);
+  // 파일명 없이 '방금 만든 것' 참조 신호 → 이어가기
+  assert.equal(a.continuesCurrentTopic("방금 만든 문서 다시 정리해줘"), true);
+  // 다른 확장자·신호 없음 → 새 작업
+  assert.equal(a.continuesCurrentTopic("test.py 스크립트 하나 만들어줘"), false);
+  // 무관한 새 작업 → 새 작업
+  assert.equal(a.continuesCurrentTopic("스도쿠 게임 웹으로 만들어줘"), false);
+});
+
+test("continuesCurrentTopic: 토픽 폴더가 없거나 비면 새 작업(false)", () => {
+  const cwd = freshCwd();
+  const a = makeBareAgent(cwd) as any;
+  assert.equal(a.continuesCurrentTopic("architecture.md 확인"), false); // workdir=""
+  a.workdir = "01-blueprint";
+  mkdirSync(resolve(cwd, "01-blueprint"), { recursive: true });
+  assert.equal(a.continuesCurrentTopic("architecture.md 확인"), false); // 폴더 비어있음
 });

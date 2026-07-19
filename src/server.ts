@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { createServer, type IncomingMessage } from "node:http";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { config } from "./config.js";
 import { LLM } from "./llm.js";
 import { SkillRegistry } from "./skills.js";
@@ -80,6 +81,10 @@ async function processMessage(
     // 세션별 작업 폴더로 산출물 분리 (workspacePerSession=true 면 cwd/<세션ID>)
     const cwd = config.workspacePerSession ? sessionWorkspace(config.cwd, session) : config.cwd;
     mkdirSync(cwd, { recursive: true });
+    // 마지막 작업 하위 폴더(토픽 폴더·change_dir)를 복원 — 실제로 존재할 때만(없으면 루트).
+    // 이게 없으면 서버에서 이어가기 요청이 이전 토픽 폴더를 못 이어받아 산출물이 갈린다.
+    const savedWd = store.loadWorkdir(session);
+    const workdir = savedWd && existsSync(resolve(cwd, savedWd)) ? savedWd : "";
     const agent = new Agent({
       llm,
       tools,
@@ -88,6 +93,7 @@ async function processMessage(
       soul,
       history: store.load(session),
       summary: store.loadSummary(session),
+      workdir,
       requestPermission: async () => config.autoApprove, // 터미널 없음 → 설정에 위임
       log: (m) => {
         console.log(`[${session}]${m}`);
@@ -98,6 +104,7 @@ async function processMessage(
     const reply = await agent.run(r.text, undefined, r.type === "skill" ? r.skill : undefined);
     store.save(session, agent.exportHistory());
     store.saveSummary(session, agent.getSummary());
+    store.saveWorkdir(session, agent.getWorkdir()); // 다음 요청에서 토픽 폴더 복원용
     return { reply, skills: agent.getUsedSkills() };
   });
 }

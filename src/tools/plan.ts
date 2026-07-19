@@ -1,4 +1,5 @@
 import type { Tool, PlanStep } from "./types.js";
+import { extractFilenames, collectWorkspaceFiles } from "../agent-utils.js";
 
 const VALID = new Set(["pending", "in_progress", "completed"]);
 
@@ -49,9 +50,36 @@ export const updatePlanTool: Tool = {
       return "in_progress 는 한 번에 하나만 허용됩니다. 하나만 in_progress 로 두세요.";
     }
 
+    // 산출물 존재 검증: 특정 파일 생성을 뜻하는 단계를 '완료'로 표시했는데 그 파일이 워크스페이스에
+    // 실제로 없으면, 완료를 인정하지 않고 pending 으로 되돌린다(파일 없이 완료 처리하는 환각 차단).
+    // 단계가 언급한 파일이 '하나도' 없을 때만 되돌린다(일부라도 존재하면 통과 — 오탐 최소화).
+    const ungrounded: string[] = [];
+    try {
+      const present = collectWorkspaceFiles(ctx.root);
+      for (const s of steps) {
+        if (s.status !== "completed") continue;
+        const files = extractFilenames(s.content);
+        if (!files.length) continue;
+        const gone = files.filter((f) => !present.has(f.toLowerCase()));
+        if (gone.length === files.length) {
+          s.status = "pending";
+          ungrounded.push(...gone);
+        }
+      }
+    } catch {
+      /* 파일시스템 접근 실패 시 검증을 건너뛰고 계획은 그대로 반영 */
+    }
+
     ctx.setPlan(steps);
     const done = steps.filter((s) => s.status === "completed").length;
-    return `계획 갱신됨 (${done}/${steps.length} 완료).`;
+    let msg = `계획 갱신됨 (${done}/${steps.length} 완료).`;
+    if (ungrounded.length) {
+      const uniq = [...new Set(ungrounded)];
+      msg +=
+        ` ⚠️ 다음 파일이 작업 폴더에 아직 없어 해당 단계를 완료로 인정하지 않고 되돌렸습니다: ${uniq.join(", ")}. ` +
+        `완료로 표시하기 전에 write_file 로 그 파일을 실제로 만드세요(만들었다고 설명만 하지 말 것).`;
+    }
+    return msg;
   },
 };
 

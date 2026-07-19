@@ -83,6 +83,17 @@ database_schema:
     - domain: Money (VO)       -> embedded columns unit_price_amount + unit_price_currency
 ```
 
+# Derive from the ACTUAL requirements — never copy the examples
+
+The Inputs, Output, and Examples in this skill use an **illustrative sample domain**
+(e-commerce: orders, order_items). They show the *format*, not the content. Build every
+table and column of `database_schema` from the **real `domain_model` and
+`architecture_design` given in this conversation** — the actual product's entities and
+attributes. Do **not** emit the sample tables (orders/order_items/products, …) unless the
+provided domain model is genuinely about them. If your result contains tables that map to
+no entity in the given domain model, you have copied the example — discard it and redo the
+work from the real inputs.
+
 # Workflow
 
 ## Step 1 — Determine persistence strategy
@@ -123,6 +134,23 @@ explicit domain-to-schema mapping rules for downstream generators.
   (traceability).
 - The design is complete only when every aggregate is mapped, every entity has a
   persistence representation, and relationships, indexes, and constraints are specified.
+
+# Deliverable — also save a Markdown document
+
+`database_schema` above is the in-context, pipeline-facing form (consumed by downstream
+blueprint/validator/generator skills). You must **also persist the design as a
+human-readable Markdown document** so it is a usable deliverable on its own:
+
+- `write_file` to **`database.md`** in the current working folder.
+- Write **Markdown**: headings, brief prose, and tables/bullet lists (a Markdown table per
+  DB table is ideal). **Never** dump raw YAML or a JavaScript-style object literal
+  (`database_schema = { ... }`) — that is not a document.
+- Cover every part of the artifact: tables (columns, types, keys, nullability),
+  relationships, indexes, constraints, migration strategy, and domain-to-schema mapping
+  rules, keeping the requirement traceability (FR-/NFR-/BR- refs).
+
+This is still design-only — a design *document*, not application code. Saving
+`database.md` is a required step: the skill is **not complete** until that file exists.
 
 # Examples
 

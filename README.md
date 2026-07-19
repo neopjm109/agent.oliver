@@ -10,7 +10,9 @@ Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권�
 
 - 🔌 OpenAI 호환 tool-calling — 로컬 LLM(Ollama·LM Studio·vLLM) 또는 OpenAI
 - 🧩 재귀 스킬 로딩 + 카테고리 기반 2단계 탐색 (수백 개 스킬 확장 가능)
+- 🧭 하이브리드 스킬 라우터 + 자동 계획 — 소형 모델을 위해 요청에 맞는 스킬을 LLM 분류로 자동 로드하고 Todo 를 선제 수립 (`SKILL_ROUTER` · `AUTO_PLAN`)
 - 📋 플래닝 — 다단계 작업을 할 일 목록으로 쪼개 추적 (`update_plan`)
+- 📄 산출물 자동 저장 — 긴 문서형 답변을 작업 폴더에 `.md` 로 자동 저장 (`AUTO_SAVE_ARTIFACTS`)
 - 💬 스트리밍 출력 (CLI)
 - 🤖 서브에이전트 — 에이전트가 하위 작업을 다른 에이전트에게 위임 (`spawn_agent`)
 - 💾 대화 영속화 — 세션별 히스토리를 디스크에 저장, 멀티턴 이어가기
@@ -20,25 +22,64 @@ Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권�
 
 ## 동작 원리
 
+핵심은 **에이전트 루프**입니다: LLM 을 호출 → 응답에 `tool_calls` 가 있으면 도구를 실행하고 결과를
+대화에 되먹여 다시 호출 → `tool_calls` 가 없으면 최종 답변으로 종료. 여기에 소형 로컬 모델을 안정적으로
+굴리기 위한 **선(先)처리**(스킬 자동 라우팅 · 자동 계획)와 **이탈/반복 가드**가 더해집니다.
+
+### AI · LLM 흐름도
+
+한 사용자 턴(`Agent.run()` 1회)의 처리 흐름입니다. 🧠 표시가 **실제 LLM 을 호출하는 지점**입니다.
+
 ```
-사용자 입력
-   │
-   ▼
-┌───────────────────────────────────────────────┐
-│  에이전트 루프 (src/agent.ts)                   │
-│                                                 │
-│  1. LLM 호출 (대화 + 도구 목록 전달)             │
-│  2. 응답에 tool_calls 가 있으면 → 도구 실행      │
-│  3. 실행 결과를 대화에 되먹임 → 1 로 반복        │
-│  4. tool_calls 가 없으면 → 최종 답변 반환        │
-└───────────────────────────────────────────────┘
-        │                          │
-        ▼                          ▼
-   도구 (src/tools/)          스킬 (skills/**/SKILL.md)
-   read_file / write_file     list_skills 로 카테고리 탐색
-   list_dir / run_shell       invoke_skill 로 지침 로드
-   list_skills / invoke_skill → SKILL.md 지침을 모델이 따름
+  사용자 입력
+     │
+     ▼
+  턴 상태 초기화(TurnState) · 작업폴더 스냅샷 주입
+     │
+     ▼
+  ── 선처리 : 최상위 턴 & (SKILL_ROUTER | AUTO_PLAN) 일 때만 ─────────────────
+     🧠 단일 분류  classifyTurn  (스킬 매칭 + 작업 여부를 한 번에)
+        ├─ 맞는 스킬이면 그 지침을 주입
+        └─ 실제 작업이면 🧠 planFirst (update_plan 강제)
+     │
+     ▼
+  ┌───────────────── 메인 에이전트 루프 (최대 MAX_STEPS 회) ──────────────────┐
+     🧠 LLM 호출  callModel   (매 호출 전 compact 압축 + 계획 리마인더 주입)
+        └ 컨텍스트 초과 / 5xx → 히스토리 예산 축소 후 재시도
+     │
+     ▼
+     응답에 tool_calls 가 있나?
+     │
+     ├─[있음] 도구 실행  executeToolCalls
+     │         · 반복 호출 가드    · 중간 산출물 자동저장
+     │         · 위험 도구(write_file · run_shell) → 승인 게이트 (y / n / a)
+     │         └ 강제 종료 신호(동일호출 3회 / 계획만 반복)?
+     │              ├ 아니오 ───────────────────→ 루프 처음으로 (LLM 재호출)
+     │              └ 예 → 🧠 forceFinalAnswer (도구 끄고 마무리) ──┐
+     │                                                            │
+     └─[없음] 최종 응답 처리  handleFinalResponse                   │
+               └ 이탈 감지(직전 턴 반복 / 계획 미완 중단)?           │
+                    ├ 예(턴당 1회) → 교정 지시 주입 → 루프 처음으로   │
+                    └ 아니오 ─────────────────────────────────────┤
+  └────────────────────────────────────────────────────────────── │ ──┘
+                                                                   ▼
+                        maybeAutoSave — 긴 문서형 답변을 .md 로 자동 저장
+                                                                   │
+                                                                   ▼
+                                                              최종 답변 반환
 ```
+
+- **선처리 (최상위 턴만)** — 도구 없는 **단일 LLM 분류**(`classifyTurn`)가 요청을 스킬 카테고리 진입점과
+  매칭(`SKILL_ROUTER`)하면서 동시에 '계획이 필요한 실제 작업인지'(`AUTO_PLAN`)를 한 번에 판정합니다.
+  맞는 스킬이 있으면 그 지침을 자동 주입하고, 실제 작업이면 `update_plan` 을 강제 호출해 Todo 를 먼저
+  세웁니다(`planFirst`). 소형 모델이 스킬을 스스로 못 고르거나 계획 없이 헤매는 것을 막습니다.
+  (예전엔 스킬 분류·작업 판정을 각각 호출해 같은 입력을 두 번 분류했는데, 하나로 합쳐 왕복 1회로 줄였습니다.)
+- **메인 루프** — 매 호출 전 컨텍스트를 예산 내로 압축(`compact`)하고 계획 리마인더를 임시 주입합니다.
+  컨텍스트 초과·일시 5xx 는 예산을 줄여 재시도합니다.
+- **이탈/반복 가드** — 같은 도구를 3회 반복하거나 계획만 갱신하면 도구를 끈 채 답변을 강제하고(`forceFinalAnswer`),
+  직전 턴과 같은 응답을 반복하거나 계획을 미완인 채 "하겠다"고 서술만 하고 끝내려 하면 턴당 1회 교정 지시를 주입해 재생성합니다.
+- **도구 · 스킬** — 도구는 `src/tools/`(read/write/셸/웹/계획/스킬/서브에이전트), 스킬은 `skills/**/SKILL.md` 지침을
+  `list_skills`·`invoke_skill` 로 로드해 모델이 따릅니다.
 
 - **스킬**은 `skills/` 아래 **어느 깊이든** `SKILL.md` 파일이면 됩니다. 로더가 재귀적으로 찾습니다.
   frontmatter(`name`, `description`, `allowed-tools`)로 "언제 쓰는지"를 선언하고, 본문에 절차를 적습니다.
@@ -53,10 +94,8 @@ Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권�
 - **스킬 발동 확인** — 자연어 요청에선 모델이 스킬을 쓸지 스스로 정하므로, 실제로 어떤 스킬이
   발동했는지 매 요청마다 추적해 알려줍니다. CLI 는 `🧩 사용한 스킬: ...` 를 출력하고, 서버 응답엔
   `skills` 필드가, 텔레그램엔 답변 하단에 표시됩니다. (아무 스킬도 안 썼으면 목록은 비어 있음)
-- **반복 호출 가드** — 소형 모델(4B급)이 같은 도구를 같은 인자로 반복 호출하는 루프에 빠지기 쉬운데,
-  한 요청 안에서 동일 호출이 감지되면 재실행 없이 넛지를 반환하고, 3번째면 **도구를 제거한 채 최종 답변을
-  강제 생성**해 루프를 끊습니다. (agent.ts)
 - **위험한 도구**(`write_file`, `run_shell`)는 실행 전 터미널에서 사용자 승인을 받습니다.
+  (승인 거부는 결과 문자열이 아니라 `ToolResult.denied` 플래그로 전달되어, 자동 저장 등 호출부가 안전하게 판별합니다.)
 - **작업 폴더(샌드박스)** — 에이전트의 파일 도구(`read_file`/`write_file`/`list_dir`)는 기본적으로
   **실행 위치의 `workspaces/` 폴더 안에서만** 동작합니다(그 밖으로 나가는 경로는 차단). 산출물이 한곳에
   모이고 저장소·`.env`·소스가 오염/유출되지 않습니다. 위치는 `WORKSPACE_DIR` 로 바꿀 수 있습니다
@@ -230,18 +269,27 @@ export const myTool: Tool = {
   description: "무엇을 하는 도구인지",
   parameters: { type: "object", properties: { x: { type: "string" } }, required: ["x"] },
   dangerous: false, // true 면 실행 전 승인
-  async run(args, ctx) { return "결과 문자열"; },
+  async run(args, ctx) {
+    // 보통은 결과 문자열만 반환. 승인이 필요한 도구라면 거부 시 구조화된 결과로 알린다:
+    //   if (!(await ctx.requestPermission("작업", detail))) return { content: "거부됨", denied: true };
+    return "결과 문자열";
+  },
 };
 ```
+
+> 반환 타입은 `string | ToolResult`(`{ content, denied? }`) 입니다. 문자열을 돌려주면 그대로 결과로 쓰이고,
+> `denied: true` 를 실으면 호출부(자동 저장 등)가 문구 매칭 없이 '거부됨'을 안전하게 판별합니다.
 
 ## 프로젝트 구조
 
 | 경로 | 역할 |
 |---|---|
-| `src/agent.ts` | 에이전트 루프 (핵심) + 서브에이전트 |
+| `src/agent.ts` | 에이전트 루프 (핵심) — 선처리·메인 루프·가드·서브에이전트 오케스트레이션 |
+| `src/agent-prompt.ts` | 시스템 프롬프트 빌더 (정체성·스킬 규칙·행동 원칙) |
+| `src/agent-utils.ts` | 상태 없는 순수 헬퍼 (히스토리 예산·정규화·자동저장 파일명 등) |
 | `src/llm.ts` | OpenAI 호환 LLM 클라이언트 (비스트리밍/스트리밍) |
 | `src/skills.ts` | SKILL.md 재귀 로더 / 카테고리 레지스트리 |
-| `src/tools/` | 도구 정의 (fs, bash, web_search/web_fetch, update_plan, list_skills/invoke_skill, spawn_agent) |
+| `src/tools/` | 도구 정의 (fs, bash, web_search/web_fetch, update_plan, list_skills/invoke_skill, spawn_agent) + `ToolResult` 타입 |
 | `src/session.ts` | 대화 영속화 세션 스토어 |
 | `src/permissions.ts` | 위험 작업 승인 게이트 |
 | `src/config.ts` | .env 설정 로더 |

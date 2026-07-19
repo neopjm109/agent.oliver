@@ -58,6 +58,16 @@ event_topology:
   notes: [...]
 ```
 
+# Derive from the ACTUAL requirements — never copy the examples
+
+The Inputs, Output, and Examples in this skill use an **illustrative sample domain**
+(e-commerce: OrderPlaced, PaymentCaptured). They show the *format*, not the content. Build
+the `event_topology` from the **real `domain_model` and `architecture_design` given in this
+conversation** — the actual product's domain events and modules. Do **not** emit the sample
+events (OrderPlaced/PaymentCaptured, …) unless the provided domain model genuinely defines
+them. If your result lists events that never appear in the given domain model, you have
+copied the example — discard it and redo the work from the real inputs.
+
 # Workflow
 
 ## Step 1 — Catalog events
@@ -85,6 +95,23 @@ Merge into the `event_topology` artifact with traceability to aggregates and req
 - Broker events must declare delivery guarantee, ordering scope, and a dead-letter/retry strategy.
 - Every event must trace to a domain aggregate or an explicit integration requirement.
 - Prefer in-process events within a modular-monolith unless durability or cross-service delivery is required.
+
+# Deliverable — also save a Markdown document
+
+`event_topology` above is the in-context, pipeline-facing form (consumed by downstream
+blueprint/validator/generator skills). You must **also persist the design as a
+human-readable Markdown document** so it is a usable deliverable on its own:
+
+- `write_file` to **`event-topology.md`** in the current working folder.
+- Write **Markdown**: headings, brief prose, and tables/bullet lists (an event catalog
+  table is ideal). **Never** dump raw YAML or a JavaScript-style object literal
+  (`event_topology = { ... }`) — that is not a document.
+- Cover every part of the artifact: event catalog, transport split (in-process/broker/
+  websocket), channels, producers & consumers, delivery semantics, ordering, and dead-letter/
+  retry strategy, keeping the traceability to aggregates and requirements.
+
+This is still design-only — a design *document*, not application code. Saving
+`event-topology.md` is a required step: the skill is **not complete** until that file exists.
 
 # Examples
 

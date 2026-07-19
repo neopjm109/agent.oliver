@@ -40,6 +40,18 @@ export interface ToolContext {
   getPlan(): PlanStep[];
 }
 
+/**
+ * 도구 실행 결과. 대부분의 도구는 문자열만 반환하면 되지만, 승인이 필요한 도구는
+ * '거부됨'을 문자열 문구가 아니라 타입 있는 플래그로 알린다 — 호출부(자동 저장 등)가
+ * 문구 매칭 대신 denied 로 판별하도록 해, 문구가 바뀌어도 깨지지 않게 한다.
+ */
+export interface ToolResult {
+  /** LLM 히스토리에 들어갈 텍스트 (기존 문자열 반환과 동일한 내용) */
+  content: string;
+  /** 사용자가 승인을 거부해 실행되지 않았음 */
+  denied?: boolean;
+}
+
 /** 에이전트가 호출할 수 있는 하나의 도구 */
 export interface Tool {
   name: string;
@@ -47,7 +59,13 @@ export interface Tool {
   parameters: JSONSchema;
   /** 파일 쓰기/셸 실행처럼 승인이 필요한 도구 여부 */
   dangerous?: boolean;
-  run(args: Record<string, any>, ctx: ToolContext): Promise<string>;
+  /** 문자열(대부분) 또는 구조화된 ToolResult(승인 거부 등을 알릴 때)를 반환한다. */
+  run(args: Record<string, any>, ctx: ToolContext): Promise<string | ToolResult>;
+}
+
+/** 도구 반환값(문자열 | ToolResult)을 항상 ToolResult 로 정규화한다. */
+export function toToolResult(r: string | ToolResult): ToolResult {
+  return typeof r === "string" ? { content: r } : r;
 }
 
 /** OpenAI chat.completions 의 tools 배열 항목으로 직렬화 */

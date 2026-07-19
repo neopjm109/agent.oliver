@@ -98,6 +98,17 @@ domain_model:
       derived: [total]                           # computed by PricingService, never client-supplied
 ```
 
+# Derive from the ACTUAL requirements — never copy the examples
+
+The Inputs, Output, and Examples in this skill use an **illustrative sample domain**
+(e-commerce: Order, OrderItem, Payment, Money). They show the *format*, not the content.
+Build every element of `domain_model` from the **real `unified_requirements` and
+`architecture_design` given in this conversation** — the actual product's aggregates,
+entities, terms, and rules. Do **not** emit the sample domain (Order/OrderItem/Payment/
+Money/PricingService, …) unless the provided requirements are genuinely about ordering and
+payment. If your result names entities that never appear in the given requirements, you
+have copied the example — discard it and redo the work from the real inputs.
+
 # Workflow
 
 ## Step 1 — Identify domains and bounded contexts
@@ -158,6 +169,23 @@ be marked server-assigned, and a derived/assigned field must not be demanded fro
   rule (traceability).
 - The model is complete only when domains, aggregates, entities, value objects, domain
   events, and invariants are all defined.
+
+# Deliverable — also save a Markdown document
+
+`domain_model` above is the in-context, pipeline-facing form (consumed by downstream
+blueprint/validator/generator skills). You must **also persist the design as a
+human-readable Markdown document** so it is a usable deliverable on its own:
+
+- `write_file` to **`domain-model.md`** in the current working folder.
+- Write **Markdown**: headings, brief prose, and tables/bullet lists. **Never** dump raw
+  YAML or a JavaScript-style object literal (`domain_model = { ... }`) — that is not a
+  document.
+- Cover every part of the artifact: bounded contexts, aggregates, entities, value objects,
+  domain services, domain events, relationships, invariants, shared kernel, and write
+  policy, keeping the requirement traceability (FR-/NFR-/BR- refs).
+
+This is still design-only — a design *document*, not application code. Saving
+`domain-model.md` is a required step: the skill is **not complete** until that file exists.
 
 # Examples
 

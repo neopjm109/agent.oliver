@@ -109,8 +109,9 @@ export const config: Config = {
   maxRetries: Number(process.env.LLM_MAX_RETRIES ?? "2"),
   autoApprove: (process.env.AUTO_APPROVE ?? "false") === "true",
   maxSteps: Number(process.env.MAX_STEPS ?? "25"),
-  // 서브에이전트 재귀 깊이 상한 (무한 위임 방지)
-  maxDepth: Number(process.env.MAX_DEPTH ?? "3"),
+  // 서브에이전트 재귀 깊이 상한 (무한 위임 방지). 소형 모델은 자기완결 작업도 계속 재위임(순수 재위임 폭주)
+  // 하므로 기본 2로 낮춰 두 단계까지만 허용한다 — 더 깊은 위임이 필요하면 MAX_DEPTH 로 올린다.
+  maxDepth: Number(process.env.MAX_DEPTH ?? "2"),
   // 서브에이전트에 상위 맥락 주입(기본 켜짐, 소형 모델용). 순수 격리 원하면 SUBAGENT_INHERIT_CONTEXT=false
   subagentInheritContext: (process.env.SUBAGENT_INHERIT_CONTEXT ?? "true") !== "false",
   // 히스토리 절삭 예산(문자). 대략 char/4 ≈ 토큰. 기본 24000자(≈6k 토큰).
