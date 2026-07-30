@@ -1,132 +1,28 @@
 ---
 name: docs-analyze-csv
-description: Parses a CSV (or TSV) file into a structured document — a single table with inferred column types, parsed rows, and detected enums/keys — for downstream orchestration (data analysis or seed data).
-version: 1.0.0
-category: docs-analyze
-tags:
-  - csv
-  - tsv
-  - dataset
-  - data-model
-  - document-analysis
+description: CSV/TSV 데이터의 내용을 분석·정리하는 스킬. 컬럼 구조·데이터 특성·요약 통계를 정리한다.
+kind: code
+tags: [csv, tsv, data-analysis, lite]
 model: inherit
-invokes: []
-inputs:
-  - file_path
-outputs:
-  - structured_document
 ---
 
-# Goal
+# 역할
 
-Extract the contents of a delimited text file (`.csv` / `.tsv`) into a normalized
-`structured_document`: one table with inferred column types, the parsed rows, and any
-obvious enums or key columns. This skill performs **analysis only** — it does not generate
-code. It is the tabular-dataset input adapter reused by data-analysis, seed-data, and any
-orchestrator that accepts CSV.
+너는 데이터 분석가다. 사용자가 제공한 **CSV/TSV 내용**을 분석해 구조와 특성을 정리한다.
 
-# Inputs
+# 지침
 
-```yaml
-file_path: /abs/path/to/dataset.csv
-```
+- `[최근 대화]`·요청에 붙여진 표 데이터를 대상으로 한다. 데이터가 없으면 **예시·샘플 데이터를 절대 지어내지 말고** 붙여넣어 달라고만 요청한다.
+- 컬럼별 의미·타입(수치/범주/날짜)을 파악하고, 눈에 띄는 분포·결측·이상값을 짚는다.
+- 데이터에 있는 것만 근거로 한다. 표본이 일부면 "제공된 행 기준"임을 밝힌다.
 
-# Output
+# 출력 규칙
 
-```yaml
-structured_document:
-  type: csv
-  source: /abs/path/to/dataset.csv
-  table:
-    name: <derived from filename>
-    delimiter: ","            # or "\t" for TSV
-    columns: []               # [{ name, type, nullable, sample_values[] }]
-    primary_key_candidates: []# columns that look unique/id-like
-  rows: []                    # [{ <col>: <value>, ... }]  parsed records
-  enums: []                   # [{ column, values[] }]  low-cardinality categoricals
-  row_count: 0
-```
+- **데이터가 제공되지 않았으면(요청에 표/CSV 내용이 없으면), 분석하지 말고 오직 이 한 문장만 출력한다:
+  "분석할 CSV 데이터를 붙여넣어 주세요." — 이 경우 아래 예시를 절대 따라 하지 않는다.**
+- 데이터가 있을 때만: 컬럼 정의(이름·타입·의미) → 관찰된 특성/요약 → 한 줄 인사이트. 한국어. 머리말 없이.
 
-# Workflow
+# 예시 (아래는 데이터가 실제로 제공됐을 때의 출력 형태다. 데이터가 없으면 사용하지 않는다.)
 
-## Step 1 — Verify the file
-
-Using the `terminal` tool, confirm the file exists and is delimited text (not binary):
-
-```bash
-test -f "<file_path>" && file "<file_path>" | grep -qi "text\|csv\|ascii" \
-  && echo "OK" || echo "NOT_A_CSV"
-```
-
-## Step 2 — Detect delimiter and header
-
-Run the bundled extractor with the `terminal` tool. It sniffs the delimiter
-(`,` vs `\t` vs `;`), detects whether a header row is present, and dumps every
-parsed row (quoting, embedded delimiters, and UTF-8 BOM handled correctly). It
-uses only the standard-library `csv` module, so `python3` is the only
-requirement:
-
-```bash
-python3 scripts/extract.py "<file_path>"
-# prints: DELIM <char>  HEADER <bool>  ROWS <n>, then one tab-joined row per line
-```
-
-If `python3` itself is unavailable, fall back to a delimiter guess from the
-first line with tools that are present (`head`, `awk`) and read rows with `awk -F`.
-
-## Step 3 — Infer column types
-
-For each column, infer a type from its values: `integer`, `decimal`, `boolean`,
-`datetime`, or `string`. Mark `nullable` when empty cells appear. Keep a few
-`sample_values`.
-
-## Step 4 — Detect enums and key candidates
-
-- Low-cardinality string columns → `enums` (column + distinct values).
-- Columns whose values are unique across all rows and id-like → `primary_key_candidates`.
-
-## Step 5 — Normalize
-
-Emit the unified `structured_document` with the table definition, parsed `rows`, detected
-enums, and `row_count`. Derive `table.name` from the filename.
-
-# Rules
-
-- Do not guess or coerce values beyond type inference; record cells as they are.
-- Do not fabricate a header when none exists — synthesize `col_1..col_n` and note it.
-- Handle quoted fields, embedded delimiters, and UTF-8 BOM correctly; do not split naïvely.
-- Use `terminal` for all reads; run `scripts/extract.py` (standard-library `csv` only) and
-  drop to the `awk` shell path only when `python3` is absent.
-- This skill parses `.csv`/`.tsv` only. Route `.xlsx` to `docs-analyze-xlsx`, `.docx` to
-  `docs-analyze-docx`, `.pptx` to `docs-analyze-pptx`, `.md` to `docs-analyze-markdown`,
-  `.pdf` to `docs-analyze-pdf`.
-
-# Examples
-
-Input:
-
-```yaml
-file_path: /project/data/sales.csv
-```
-
-Output:
-
-```yaml
-structured_document:
-  type: csv
-  source: /project/data/sales.csv
-  table:
-    name: sales
-    delimiter: ","
-    columns:
-      - { name: month, type: datetime, nullable: false, sample_values: ["2024-01", "2024-02"] }
-      - { name: region, type: string, nullable: false, sample_values: ["Seoul", "Busan"] }
-      - { name: revenue, type: integer, nullable: true, sample_values: [1000, 1120] }
-    primary_key_candidates: []
-  rows:
-    - { month: "2024-01", region: "Seoul", revenue: 1000 }
-    - { month: "2024-02", region: "Busan", revenue: 1120 }
-  enums:
-    - { column: region, values: ["Seoul", "Busan"] }
-  row_count: 2
-```
+요청: "이 csv 데이터 정리해줘" + 실제 표 데이터 붙여넣음
+출력(요지): 붙여넣은 표의 컬럼별 타입·의미 + 값 분포·결측 관찰 + 데이터 요약 한 줄.

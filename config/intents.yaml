@@ -1,0 +1,347 @@
+# =============================================================================
+# intents.yaml — Intent → 단일 스킬 매핑 (v2, 저사양 lite)
+#
+# 규칙/컨벤션
+# - name        : intent 고유 id (라우터 분류 라벨)
+# - description : LLM 분류기용 의미 설명 (임베딩 recall 에도 사용). 한 줄.
+# - examples    : 임베딩 centroid 계산용 예시 발화 (5~9개 권장)
+# - skill       : 실행할 스킬 1개. 리터럴 이름 또는 "{slot}"(슬롯값=스킬명으로 치환)
+# - slot        : (선택) Extractor 가 enum 중 하나로 추출할 파라미터.
+#                 값이 스킬명이면 skill: "{slot}" 로 치환, 아니면 스킬에 컨텍스트로 전달.
+#
+# 설계 원칙 (v1 대비 변경점)
+# - 1 intent → 1 skill → 1 LLM 호출. 다중 노드 DAG 폐기(lite 런타임은 산출물
+#   체이닝/파일쓰기를 안 해 다중 노드가 동작하지 않았다).
+# - 라우팅 표면 최소화: intent 20개. 프레임워크 세부는 slot 으로 흡수.
+# - 코드생성은 "CLI 명령 안내형": 공식 스캐폴더 명령 + 설정 단계를 안내(코드 대량생성 X).
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. 개발 — 프로젝트 스캐폴딩 / 기능 추가 (CLI 명령 안내형)
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: scaffold_project
+  description: "새 프로젝트를 공식 CLI 스캐폴더 명령으로 시작하는 방법을 안내한다"
+  examples:
+    - "스프링 프로젝트 만들어줘"
+    - "nestjs 백엔드 초기 세팅"
+    - "django 새 프로젝트 시작"
+    - "nextjs 프론트 프로젝트 생성"
+    - "flutter 앱 하나 만들어줘"
+    - "tauri 데스크탑 앱 시작하자"
+    - "새 백엔드 프로젝트 뼈대 잡아줘"
+    - "프로젝트 스캐폴딩 해줘"
+  slot:
+    framework: { enum: [spring, nestjs, django, nextjs, flutter, tauri] }
+  skill: project-scaffolder
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. 개발 — 코드 작업 (수정/생성 = 실제 파일 생성, 안내 아님)
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: change_code
+  description: "기존 코드를 수정·리팩터링·삭제하거나, 프로젝트에 기능(인증·캐시·큐·스케줄러·웹소켓 등)을 추가하는 실제 코드 파일을 만든다"
+  examples:
+    - "이 코드 리팩터링 해줘"
+    - "이 함수 수정해줘"
+    - "이 부분 삭제해줘"
+    - "중복 코드 정리해줘"
+    - "안 쓰는 코드 제거해줘"
+    - "여기 인증 붙여줘"
+    - "캐시 추가해줘"
+    - "웹소켓 추가"
+    - "스케줄러 넣어줘"
+    - "파일 업로드 기능 추가"
+    - "이 프로젝트에 알림 기능 넣어줘"
+  skill: code-editor
+
+- name: review_code
+  description: "코드를 리뷰한다 (버그·설계·가독성·컨벤션 종합 + 보안·성능·취약점·테스트 등 특정 축 점검 포함)"
+  examples:
+    - "코드 리뷰 해줘"
+    - "이 코드 봐줘"
+    - "이 PR 리뷰해줘"
+    - "이 코드 전반적으로 어떤지 봐줘"
+    - "이 코드 보안 점검해줘"
+    - "취약점 있는지 검사해줘"
+    - "성능 병목 있는지 봐줘"
+    - "SQL 인젝션 위험 있는지 확인"
+    - "테스트 커버리지 점검해줘"
+  skill: code-reviewer
+
+- name: explain_code
+  description: "낯선 코드/함수가 무엇을 하는지 이해하도록 설명한다(온보딩·인수인계). 문제점 지적·개선은 review_code, 문서 산출은 write_docs."
+  examples:
+    - "이 함수 뭐 하는거야"
+    - "이 코드 설명해줘"
+    - "이 로직 흐름 설명해줘"
+    - "src/foo.ts 뭐하는 파일이야"
+    - "이 클래스 어떻게 동작해"
+    - "이 부분 이해가 안 돼 설명해줘"
+    - "이 코드 읽고 설명해줘"
+  skill: code-explainer
+
+- name: design_system
+  description: "시스템 아키텍처·도메인 모델·API·DB 스키마를 설계한다"
+  examples:
+    - "아키텍처 설계해줘"
+    - "시스템 설계 청사진 잡아줘"
+    - "데이터베이스 모델링 해줘"
+    - "postgres 스키마 설계"
+    - "API 스펙이랑 도메인 설계"
+    - "전체 구조 설계해줘"
+    - "엔티티 관계 모델링 해줘"
+    - "DB 테이블 설계해줘"
+  slot:
+    db_engine: { enum: [none, mysql, postgresql, mariadb, mongodb] }
+  skill: architect
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. 개발 — 문서 / VCS / 배포
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: analyze_document
+  description: "문서 파일(pdf·엑셀·ppt·워드·마크다운·csv)의 내용을 분석·요약한다"
+  examples:
+    - "이 pdf 분석해줘"
+    - "엑셀 파일 내용 정리해줘"
+    - "ppt 요약해줘"
+    - "워드 문서 분석"
+    - "마크다운 정리해줘"
+    - "csv 데이터 정리해줘"
+    - "이 문서 내용 읽어서 요약해줘"
+    - "첨부한 파워포인트 내용 뽑아줘"
+  slot:
+    doc_type:
+      enum: [docs-analyze-docx, docs-analyze-xlsx, docs-analyze-pptx,
+             docs-analyze-pdf, docs-analyze-markdown, docs-analyze-csv]
+  skill: "{doc_type}"
+
+- name: run_command
+  description: "프로젝트의 테스트·빌드·린트·타입체크를 실제로 실행하고 결과를 보고한다. 테스트 코드 생성은 write_tests, 배포 빌드 안내는 setup_deployment."
+  examples:
+    - "테스트 돌려줘"
+    - "테스트 실행해줘"
+    - "빌드 돌려줘"
+    - "린트 돌려줘"
+    - "타입체크 해줘"
+    - "테스트 통과하는지 확인해줘"
+    - "빌드 되는지 실행해봐"
+    - "tsc 돌려줘"
+  # 코드 경로 intent — pipeline(§2.66)+core/runner.ts 가 화이트리스트로 명령 조립·실행. skill 은 안전망 폴백.
+  skill: fallback_reply
+
+- name: write_tests
+  description: "주어진 소스 파일·함수에 대한 단위 테스트 코드를 생성한다 (언어·프레임워크 자동 판단). 코드 리뷰는 review_code, 코드 수정은 change_code."
+  examples:
+    - "이 파일 테스트 짜줘"
+    - "src/foo.ts 단위 테스트 만들어줘"
+    - "이 함수 테스트 코드 작성해줘"
+    - "유닛 테스트 생성해줘"
+    - "테스트 케이스 만들어줘"
+    - "이 모듈 테스트 추가해줘"
+    - "이 클래스 테스트 짜줘"
+  # 코드 경로 intent — pipeline(§2.95)+core/tests.ts 가 처리. skill 은 안전망 폴백.
+  skill: fallback_reply
+
+- name: translate
+  description: "문서·텍스트를 다른 언어로 번역한다 (한↔영 중심, 일·중도). 방향을 안 밝히면 원문 반대 언어로. 형식 변환은 convert_document, 요약은 analyze_document."
+  examples:
+    - "이 문서 영어로 번역해줘"
+    - "영문으로 바꿔줘"
+    - "이거 한국어로 번역"
+    - "첨부 파일 영어로 번역해줘"
+    - "이 문장 영어로 옮겨줘"
+    - "국문으로 번역해줘"
+    - "일본어로 번역해줘"
+    - "이 README 영어로 번역"
+    - "translate this to English"
+    - "translate to Korean please"
+  # 코드 경로 intent — pipeline(§2.9)+core/translate.ts 가 처리(한국어 강제 래퍼 우회). skill 은 안전망 폴백.
+  skill: fallback_reply
+
+- name: convert_document
+  description: "문서 파일을 다른 형식으로 변환한다 (예: 마크다운→워드, pdf→마크다운, 엑셀→csv, →PDF/PPT). 샘플 파일을 함께 주면 그 양식·구조에 맞춰 변환한다. 문서 내용 요약·분석은 analyze_document."
+  examples:
+    - "이 문서 워드로 변환해줘"
+    - "pdf 를 마크다운으로 바꿔줘"
+    - "이 마크다운 docx 로 만들어줘"
+    - "엑셀을 csv 로 변환해줘"
+    - "이 내용을 pdf 로 내보내줘"
+    - "파워포인트로 변환해줘"
+    - "첨부한 샘플 양식에 맞춰서 이 문서 변환해줘"
+    - "이 보고서를 샘플 템플릿 형식으로 바꿔줘"
+  # 코드 경로 intent — pipeline(§2.8) + core/convert.ts 가 처리하고 return 하므로 아래 skill 은 실행되지 않는다.
+  # skill 필드는 타입상 필수라, 분기가 깨져 runtime 에 닿는 만일에 대비한 안전망으로 fallback_reply 를 둔다.
+  skill: fallback_reply
+
+- name: write_docs
+  description: "코드·변경사항을 바탕으로 개발 문서를 작성한다 (API 가이드·릴리즈노트·ADR·README)"
+  examples:
+    - "이 코드로 API 문서 만들어줘"
+    - "릴리즈 노트 작성해줘"
+    - "ADR 써줘"
+    - "README 작성"
+    - "이 소스 기반 API 가이드 생성"
+    - "변경사항으로 릴리즈 노트 만들어줘"
+    - "아키텍처 결정 기록 써줘"
+  slot:
+    doc_type: { enum: [api-guide, release-notes, adr, readme] }
+  skill: doc-writer
+
+- name: git_artifact
+  description: "커밋 메시지·PR 설명·체인지로그 등 git 산출물을 작성한다"
+  examples:
+    - "커밋 메시지 만들어줘"
+    - "이 변경 커밋 메시지 써줘"
+    - "PR 설명 작성해줘"
+    - "풀리퀘스트 본문 써줘"
+    - "체인지로그 써줘"
+    - "변경 이력 정리해줘"
+    - "이번 릴리즈 변경사항 정리"
+  slot:
+    kind: { enum: [commit, pr, changelog] }
+  skill: git-writer
+
+- name: setup_deployment
+  description: "앱을 배포하는 방법을 안내하고 빌드 산출물을 만든다 (프레임워크별 빌드 명령·산출물 경로·실행법 + build.sh). Docker·CI 중심이 아니라 빌드 산출물 중심."
+  examples:
+    - "이 프로젝트 배포하고 싶어"
+    - "배포 준비해줘"
+    - "빌드 산출물 만들어줘"
+    - "배포용 빌드 스크립트 만들어줘"
+    - "어떻게 배포해"
+    - "프로덕션 빌드 명령 알려줘"
+    - "릴리즈 빌드 해줘"
+    - "배포 구성해줘"
+  # 코드 경로 intent — pipeline(§2.65) + core/deploy.ts 가 스택 감지 시 build.sh 생성. 감지 실패 시 아래 skill(LLM 안내)로 폴백.
+  skill: deploy-advisor
+
+- name: research_topic
+  description: "주제·기술·개념을 조사하고 설명·비교·정리한다"
+  examples:
+    - "이 주제 조사해줘"
+    - "REST랑 GraphQL 차이 정리해줘"
+    - "두 기술 장단점 비교해줘"
+    - "이 개념 쉽게 설명해줘"
+    - "마이크로서비스가 뭔지 정리해줘"
+    - "이 기술 관련 자료 정리해줘"
+    - "A랑 B 뭐가 다른지 알려줘"
+    - "핵심만 요약해서 설명해줘"
+  skill: researcher
+
+- name: plan_tasks
+  description: "요구를 실행 단계로 분해해 순서가 있는 할 일(Todo) 체크리스트로 만든다. 특정 도메인(여행·식단·아키텍처) 계획이 아니라 범용 작업 계획·태스크 쪼개기."
+  examples:
+    - "이 작업 단계별로 계획 세워줘"
+    - "할 일 목록 만들어줘"
+    - "todo 리스트로 정리해줘"
+    - "이거 어떻게 진행할지 체크리스트 만들어줘"
+    - "작업을 단계로 쪼개줘"
+    - "실행 계획이랑 할 일 정리해줘"
+    - "이 요구사항 작업 계획 짜줘"
+    - "진행 순서대로 태스크 나눠줘"
+  skill: task-planner
+
+- name: plan_and_run
+  description: "여러 단계가 필요한 요청을 계획으로 나눈 뒤, 확인을 받고 등록된 스킬들을 순서대로 이어서 실행한다. 계획만 원하면 plan_tasks, 단일 작업이면 각 전용 intent."
+  examples:
+    - "계획 세우고 실행까지 해줘"
+    - "알아서 순서대로 다 처리해줘"
+    - "설계부터 문서까지 한 번에 해줘"
+    - "이거 단계별로 진행해서 끝내줘"
+    - "계획대로 쭉 실행해줘"
+    - "여러 단계로 나눠서 자동으로 처리해줘"
+    - "조사하고 그걸로 제안서까지 만들어줘"
+    - "설계하고 이어서 스캐폴딩까지 진행해줘"
+  skill: plan-and-run
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. 콘텐츠 (각 단일 스킬)
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: write_story
+  description: "소설·동화·시나리오·대본·독백·시 등 창작 글을 쓴다"
+  examples:
+    - "소설 써줘"
+    - "이 설정으로 이야기 만들어줘"
+    - "단편 소설 하나 써줘"
+    - "시나리오 초안 작성"
+    - "연극 대본 써줘"
+    - "짧은 독백 하나 만들어줘"
+    - "판타지 이야기 써줘"
+  skill: story-writer
+
+- name: run_game_session
+  description: "TRPG·게임 세션을 준비한다 (세계관·NPC·퀘스트·전투)"
+  examples:
+    - "TRPG 세션 만들어줘"
+    - "던전 시나리오 짜줘"
+    - "NPC랑 퀘스트 생성"
+    - "게임 마스터 세션 준비해줘"
+    - "이 세계관으로 퀘스트 만들어줘"
+    - "전투 인카운터 짜줘"
+    - "롤플레잉 세션 아웃라인 잡아줘"
+  skill: game-builder
+
+- name: write_proposal
+  description: "사업 제안서·RFP 분석·견적·범위를 작성한다"
+  examples:
+    - "제안서 작성해줘"
+    - "RFP 분석하고 제안서 써줘"
+    - "견적이랑 범위 정리해줘"
+    - "프로젝트 제안서 만들어줘"
+    - "공수 산정하고 가격 뽑아줘"
+    - "사업 제안서 초안 써줘"
+    - "제안 범위 잡아줘"
+  skill: proposal-writer
+
+- name: write_message
+  description: "업무 메일·메신저(슬랙 등) 메시지 초안을 작성한다. 개발 문서는 write_docs, 제안서는 write_proposal."
+  examples:
+    - "이 내용으로 메일 써줘"
+    - "회의 일정 변경 메일 초안 써줘"
+    - "정중하게 사과 메일 써줘"
+    - "슬랙에 공지 메시지 써줘"
+    - "고객 문의 답장 초안 작성해줘"
+    - "독촉 메일 정중하게 써줘"
+    - "업무 메일 초안 만들어줘"
+  skill: message-writer
+
+- name: meeting_minutes
+  description: "회의 녹취·메모를 구조화된 회의록과 액션아이템(담당·기한)으로 정리한다. 단순 문서 요약은 analyze_document."
+  examples:
+    - "회의록 정리해줘"
+    - "이 녹취 회의록으로 만들어줘"
+    - "회의 메모 정리해서 액션아이템 뽑아줘"
+    - "미팅 노트 회의록으로 작성해줘"
+    - "회의 내용 정리하고 할 일 뽑아줘"
+    - "이 회의 결정사항이랑 할 일 정리해줘"
+  skill: meeting-minutes
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. 메타 / fallback (코드 스킬 — 외부 의존 0)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# agent_status 폐지 — status 는 인프라 조회라 LLM 라우터를 안 거치고 파이프라인 결정론 인터셉트
+# (/status 명령 + 명시적 상태 질문, STATUS_QUERY)가 처리한다. chitchat↔status 임베딩 모호성 제거.
+
+- name: chitchat
+  description: "인사·감사·잡담 등 가벼운 일상 대화"
+  examples:
+    - "안녕"
+    - "안녕하세요"
+    - "반가워"
+    - "고마워"
+    - "감사합니다"
+    - "너 뭐야"
+    - "너 누구야?"
+    - "정체가 뭐야"
+    - "뭐 할 수 있어?"
+    - "잘 지내?"
+  skill: chitchat
+
+- name: unknown
+  examples:
+  skill: fallback_reply
+  notes: "라우터 threshold 미달 시. 범위밖·잡담을 LLM 으로 대화형 처리. examples 없음(임베딩 대상 아님)."

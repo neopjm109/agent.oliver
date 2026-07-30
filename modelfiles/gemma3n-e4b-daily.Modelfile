@@ -1,0 +1,8 @@
+# 평상시용 주력 chat 모델 (M2 16GB) — LLM_TEST_RESULT.md 결론 반영
+# 베이스 gemma3n:e4b(Q4_K_M)에 M2 절제 설정(num_ctx 4096 / num_thread 4)을 얹은 커스텀 태그.
+# M2 16GB 는 메모리 예산이 빠듯해 num_ctx 를 4096 으로 낮춘다(적재 ~3.1GB, 속도 손실 거의 없음).
+# 출력의 U+2581(▁) 아티팩트는 앱의 normalizeModelText 가 정규화한다.
+# 등록:  ollama create gemma3n-e4b-daily -f modelfiles/gemma3n-e4b-daily.Modelfile
+FROM gemma3n:e4b
+PARAMETER num_ctx 4096
+PARAMETER num_thread 4

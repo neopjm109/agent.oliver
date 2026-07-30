@@ -1,0 +1,51 @@
+# 런타임 설정 — profile 하나만 바꾸면 M4 ↔ M2 전환 (둘 다 로컬 Ollama).
+# 절제 설정(num_ctx/num_thread)은 OpenAI 호환 /v1 로 직접 못 넘기므로
+# modelfiles/*.Modelfile 로 각 커스텀 태그에 고정한다. 등록 명령은 각 Modelfile 주석 참고.
+profile: m4                 # m4 | m2
+
+m4:                         # Mac M4 24GB 평상시 주력 — LLM_TEST_RESULT.md 벤치 결론
+  baseURL: http://localhost:11434/v1
+  chatModel: qwen3-8b-daily          # 베이스 qwen3:8b (num_ctx 8192 / num_thread 4)
+  embedModel: bge-m3
+  coderModel: qwen25-coder-7b-daily  # 베이스 qwen2.5-coder:7b. 코드 생성 전용. 비우면 chatModel.
+  routerModel: gemma3n-e4b-daily     # 분류·복합판정 전용 경량 모델(4B). qwen3-8b 의 사고(think) 지연 회피.
+                                     # m4==m2 라우팅 정확도 동일 실증 → 분류엔 8B 불필요. 비우면 chatModel.
+  maxOutputTokens: 3584              # 자유생성 출력 상한. 8192 ctx 안에서 입력(최악 ~3.5K토큰)+출력 여유.
+                                     # 4096 은 단일 스텝이 300s 근접(하네스 240s 초과 관측)해 3584 로 소폭 하향.
+  noThinkFreeGen: true               # 자유생성(문서·제안서 등)만 qwen3 사고 off(reasoning_effort:none) — 지연↓.
+                                     # 계획 분해·분류(chatJson)는 사고 유지. gemma(m2)는 사고 없어 끔.
+
+m2:                         # Mac M2 16GB 평상시 (경량) — 메모리 예산상 num_ctx 4096
+  baseURL: http://localhost:11434/v1
+  chatModel: gemma3n-e4b-daily       # 베이스 gemma3n:e4b (num_ctx 4096 / num_thread 4). ▁ 는 앱이 정규화.
+  embedModel: bge-m3
+  coderModel:                        # 경량: 비워서 코드도 chatModel(gemma3n). 여유 있으면 qwen25-coder-7b-daily 지정.
+  # routerModel 비움 → chatModel(gemma3n) 이 이미 경량이라 분류도 그대로 사용.
+  maxOutputTokens: 2560              # 4096 ctx 예산: 실측 최악 입력 ~1341토큰(8단계 체이닝) → 출력 2560 안전
+                                     # (합 ~3900<4096, 마진 ~195). 2816↑ 은 입력 여유 잠식 위험이라 상한.
+
+router:
+  # 2단계 하이브리드. 점수 = max(centroid, 개별 예제).
+  #  score ≥ directThreshold        → 임베딩만으로 직행 (빠름, 흔한 입력)
+  #  unknownThreshold ≤ score < 위  → LLM이 top-K 후보 중 분류 (novel 표현 일반화)
+  #  score < unknownThreshold       → unknown → fallback
+  directThreshold: 0.94     # 이상이면 직행(고신뢰, LLM 스킵)
+  unknownThreshold: 0.60    # 미만이면 바로 unknown. 낮게 잡아 애매한 건 전부 classifier로 →
+                            # OOS는 classifier의 'none'이 거른다(threshold 취약성 회피)
+  candidateK: 8             # 중간 밴드에서 LLM 에 넘길 후보 수
+
+response:
+  polishWithLlm: false      # true면 템플릿 응답을 LLM이 한 번 다듬음
+  warmChitchat: true        # chitchat 하이브리드: 단순 인사·감사·작별은 즉답, '누구야/뭐해/잘지내'만 LLM.
+                            # LLM 실패/미가용 시 테이블 답으로 폴백. false 면 전부 고정 테이블.
+
+audit:
+  enabled: true             # 턴 단위 라우팅 결정·유사도·지연을 .cache/audit.jsonl 에 기록(false로 끔)
+
+# 페르소나(소울) — souls/<이름>.md 를 대화 표면(인사·잡담·fallback)에 주입.
+# 비우면 기본 에이전트. 런타임 전환: /soul <이름>  ·  해제: /soul off  (세션별)
+soul: ''                    # 예: claire | oliver
+
+skills:
+  root: skills              # 활성 스킬 루트(dev/ · docs-analyze/ · domains/, 18 md + 4 code).
+                            # 구 24B 스킬은 skills-24b/(스캔 안 됨, 로컬 아카이브)에 보관.

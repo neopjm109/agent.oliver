@@ -1,29 +1,36 @@
 {
-  "name": "skillful-agent",
+  "name": "ai-agent-lite",
   "version": "0.1.0",
-  "description": "스킬 기반 범용 AI 에이전트 프레임워크 (로컬 LLM / OpenAI 호환)",
+  "description": "저사양 LLM(3B/4B)용 경량 에이전트 — Intent Router(임베딩) + 정적 DAG + Skill",
   "type": "module",
   "bin": {
-    "agent": "./src/index.ts"
+    "agent": "bin/agent.mjs"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "start": "tsx src/index.ts",
-    "oliver": "tsx src/index.ts --oliver",
-    "claire": "tsx src/index.ts --claire",
-    "serve": "tsx src/server.ts",
-    "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "server": "tsx src/server.ts",
+    "server:stop": "lsof -ti tcp:${AGENT_PORT:-7000} | xargs kill 2>/dev/null || true",
+    "server:restart": "npm run server:stop && npm run server",
+    "cli": "tsx src/cli.ts",
+    "bot": "tsx src/index.ts",
+    "slack": "tsx src/slackIndex.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "eval:routing": "node --import tsx scripts/eval-routing.ts",
+    "eval:plan": "AGENT_MAX_STEPS=8 LONGRUN_STEPS=6,8 node --import tsx scripts/eval-plan-longrun.ts",
+    "build": "tsc",
+    "prepare": "npm run build"
   },
   "dependencies": {
-    "openai": "^4.104.0"
+    "@slack/bolt": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.45.1",
+    "officeparser": "^7.5.0",
+    "openai": "^4.67.0",
+    "yaml": "^2.5.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
-  },
-  "engines": {
-    "node": ">=20"
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
   }
 }

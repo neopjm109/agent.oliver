@@ -1,239 +1,138 @@
-#!/usr/bin/env -S npx tsx
-import { createServer, type IncomingMessage } from "node:http";
-import { mkdirSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { config } from "./config.js";
-import { LLM } from "./llm.js";
-import { SkillRegistry } from "./skills.js";
-import { selectTools } from "./tools/index.js";
-import { Agent } from "./agent.js";
-import { SessionStore, sessionWorkspace } from "./session.js";
-import { loadSoul, listSouls } from "./soul.js";
-import { interpret, type CommandCtx } from "./commands.js";
+// 상주 서버 — 파이프라인(router centroids · LLM 연결)을 한 번만 로드해 워밍 유지.
+// TCP(기본 127.0.0.1:7000)로 요청 1건씩 처리. 요청마다 클라이언트 cwd 가 workspace 로 전달됨.
+//   실행:  npm run server   (프로젝트 루트에서 — config/ · skills/ 가 여기 기준)
+import 'dotenv/config';
+import net from 'node:net';
+import { isAbsolute, resolve } from 'node:path';
+import { statSync } from 'node:fs';
+import { createPipeline } from './pipeline.js';
+import { serverAddr, isLoopbackHost } from './core/serverAddr.js';
+import { listSouls } from './core/soul.js';
 
-/**
- * 에이전트 HTTP 서버.
- *   POST /chat        { "session": "abc", "message": "..." }  →  { "reply": "..." }
- *   POST /chat/stream { "session": "abc", "message": "..." }  →  NDJSON: {type:step|done|error}
- *   POST /reset  { "session": "abc" }                    →  { "ok": true }
- *   GET  /souls                                          →  { "souls": [...] }
- *   POST /soul   { "session": "abc", "name": "oliver" }  →  { "ok": true, "persona": "oliver" }
- *   GET  /health →  { "ok": true }
- *
- * 텔레그램 봇 등 외부 클라이언트가 이 엔드포인트로 대화한다.
- * 대화는 session 별로 .sessions/ 에 영속화되어 멀티턴이 유지된다.
- * 대화형 터미널이 없으므로 위험 도구(write/shell)는 AUTO_APPROVE 설정을 따른다.
- */
-
-// 작업 산출물 디렉터리(샌드박스 루트)를 없으면 생성
-mkdirSync(config.cwd, { recursive: true });
-const skills = SkillRegistry.load(config.skillsDir, {
-  hideOrchestrators: config.skillMode === "single",
-});
-const llm = new LLM(config);
-const store = new SessionStore(config.sessionsDir);
-const tools = selectTools(config.disabledTools);
-
-// 세션별 직렬 처리용 큐 (같은 세션의 동시 요청이 히스토리를 훼손하지 않도록)
-const locks = new Map<string, Promise<unknown>>();
-function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = locks.get(key) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
-  locks.set(
-    key,
-    next.finally(() => {
-      if (locks.get(key) === next) locks.delete(key);
-    }),
-  );
-  return next;
+interface Req {
+  /** 제어 요청: 'info'(배너용 메타) | 'reset'(세션 초기화). 없으면 일반 대화 턴. */
+  op?: 'info' | 'reset';
+  text?: string;
+  workspace?: string;
+  chatId?: string;
+  /** 메신저 업로드 첨부의 절대경로 목록(봇이 다운로드해 로컬에 저장). */
+  attachments?: string[];
 }
 
-/**
- * 세션에 대해 메시지를 한 번 처리한다.
- * 먼저 공용 슬래시 명령(/help·/skills·/soul·/reset·/<스킬>)을 해석하고 —
- *   · 텍스트 응답 명령이면 에이전트 없이 그 텍스트를 반환하고,
- *   · '/<스킬>' 이면 해당 스킬을 실어 에이전트를 실행한다.
- * onStep 이 주어지면 도구 호출·계획 등 진행 로그를 실시간으로 흘려보낸다.
- * (CLI 와 동일한 commands.interpret 를 써서 명령 체계를 통일한다.)
- */
-async function processMessage(
-  session: string,
-  message: string,
-  onStep?: (text: string) => void,
-): Promise<{ reply: string; skills: string[] }> {
-  return withLock(session, async () => {
-    const cmdCtx: CommandCtx = {
-      skills,
-      store,
-      session,
-      soulsDir: config.soulsDir,
-      workspaceRoot: config.workspacePerSession ? sessionWorkspace(config.cwd, session) : config.cwd,
-    };
-    const r = interpret(message, cmdCtx);
-    // 텍스트 응답 명령(/help·/skills·/soul·/reset) — 에이전트 미실행 (부수효과는 interpret 가 적용)
-    if (r.type === "reply" || r.type === "error") {
-      return { reply: r.text, skills: [] };
-    }
+const { host, port } = serverAddr();
 
-    // 세션에 설정된 페르소나(SOUL)를 정체성으로 주입 (없으면 일반 모드)
-    const persona = store.loadPersona(session);
-    const soul = persona ? loadSoul(config.soulsDir, persona) : null;
-    // 세션별 작업 폴더로 산출물 분리 (workspacePerSession=true 면 cwd/<세션ID>)
-    const cwd = config.workspacePerSession ? sessionWorkspace(config.cwd, session) : config.cwd;
-    mkdirSync(cwd, { recursive: true });
-    // 마지막 작업 하위 폴더(토픽 폴더·change_dir)를 복원 — 실제로 존재할 때만(없으면 루트).
-    // 이게 없으면 서버에서 이어가기 요청이 이전 토픽 폴더를 못 이어받아 산출물이 갈린다.
-    const savedWd = store.loadWorkdir(session);
-    const workdir = savedWd && existsSync(resolve(cwd, savedWd)) ? savedWd : "";
-    const agent = new Agent({
-      llm,
-      tools,
-      skills,
-      config: { ...config, cwd },
-      soul,
-      history: store.load(session),
-      summary: store.loadSummary(session),
-      workdir,
-      requestPermission: async () => config.autoApprove, // 터미널 없음 → 설정에 위임
-      log: (m) => {
-        console.log(`[${session}]${m}`);
-        onStep?.(m);
-      },
-    });
-    // '/<스킬>' 이면 스킬을 실어서, 아니면 일반 메시지로 실행
-    const reply = await agent.run(r.text, undefined, r.type === "skill" ? r.skill : undefined);
-    store.save(session, agent.exportHistory());
-    store.saveSummary(session, agent.getSummary());
-    store.saveWorkdir(session, agent.getWorkdir()); // 다음 요청에서 토픽 폴더 복원용
-    return { reply, skills: agent.getUsedSkills() };
-  });
-}
+// 서버는 요청이 보낸 workspace 를 파일쓰기·스캐폴드 명령의 실행 루트로 쓴다(클라이언트가 자기 cwd 전달).
+// AGENT_ALLOWED_ROOTS(콜론 구분)가 설정되면 그 하위만 허용해, 임의 위치에서의 쓰기/실행을 막는다.
+const allowedRoots = (process.env.AGENT_ALLOWED_ROOTS ?? '')
+  .split(':')
+  .map((p) => p.trim())
+  .filter(Boolean)
+  .map((p) => resolve(p));
 
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => {
-      data += c;
-      if (data.length > 1_000_000) reject(new Error("요청 본문이 너무 큽니다."));
-    });
-    req.on("end", () => resolve(data));
-    req.on("error", reject);
-  });
-}
-
-const server = createServer(async (req, res) => {
-  const json = (code: number, obj: unknown) => {
-    res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify(obj));
-  };
-
+/** 요청 workspace 검증 — 미지정이면 서버 cwd 로 위임(null 반환). 유효하면 절대경로, 부적합하면 에러 문자열. */
+function validateWorkspace(ws?: string): { ok: true; path: string | undefined } | { ok: false; error: string } {
+  if (ws === undefined || ws === '') return { ok: true, path: undefined }; // 파이프라인이 서버 cwd 로 폴백
+  if (!isAbsolute(ws)) return { ok: false, error: `workspace 는 절대경로여야 해요: ${ws}` };
+  const abs = resolve(ws);
   try {
-    if (req.method === "GET" && req.url === "/health") {
-      return json(200, { ok: true, model: config.model, skills: skills.size() });
-    }
-
-    if (req.method === "POST" && req.url === "/chat") {
-      // 선택적 토큰 인증
-      if (config.serverToken && req.headers["x-api-key"] !== config.serverToken) {
-        return json(401, { error: "unauthorized" });
-      }
-      const body = JSON.parse((await readBody(req)) || "{}");
-      const session = String(body.session ?? "").trim();
-      const message = String(body.message ?? "").trim();
-      if (!session || !message) {
-        return json(400, { error: "session 과 message 가 필요합니다." });
-      }
-      const { reply, skills: used } = await processMessage(session, message);
-      return json(200, { reply, skills: used });
-    }
-
-    if (req.method === "POST" && req.url === "/chat/stream") {
-      if (config.serverToken && req.headers["x-api-key"] !== config.serverToken) {
-        return json(401, { error: "unauthorized" });
-      }
-      const body = JSON.parse((await readBody(req)) || "{}");
-      const session = String(body.session ?? "").trim();
-      const message = String(body.message ?? "").trim();
-      if (!session || !message) {
-        return json(400, { error: "session 과 message 가 필요합니다." });
-      }
-      // NDJSON 스트림: 진행 이벤트를 한 줄씩 흘려보내고 마지막에 done 을 보낸다.
-      res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8" });
-      const emit = (obj: unknown) => res.write(JSON.stringify(obj) + "\n");
-      try {
-        const { reply, skills: used } = await processMessage(session, message, (text) =>
-          emit({ type: "step", text }),
-        );
-        emit({ type: "done", reply, skills: used });
-      } catch (err: any) {
-        emit({ type: "error", error: err.message });
-      }
-      res.end();
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/souls") {
-      return json(200, { souls: listSouls(config.soulsDir) });
-    }
-
-    if (req.method === "POST" && req.url === "/soul") {
-      if (config.serverToken && req.headers["x-api-key"] !== config.serverToken) {
-        return json(401, { error: "unauthorized" });
-      }
-      const body = JSON.parse((await readBody(req)) || "{}");
-      const session = String(body.session ?? "").trim();
-      const name = String(body.name ?? "").trim();
-      if (!session) return json(400, { error: "session 이 필요합니다." });
-
-      // name 이 비면 페르소나 해제(일반 모드)
-      if (!name) {
-        await withLock(session, async () => store.savePersona(session, null));
-        return json(200, { ok: true, persona: null });
-      }
-      // 존재하는 페르소나인지 검증
-      if (!loadSoul(config.soulsDir, name)) {
-        return json(404, { error: `페르소나 '${name}' 없음`, souls: listSouls(config.soulsDir) });
-      }
-      await withLock(session, async () => store.savePersona(session, name));
-      return json(200, { ok: true, persona: name });
-    }
-
-    if (req.method === "POST" && req.url === "/reset") {
-      if (config.serverToken && req.headers["x-api-key"] !== config.serverToken) {
-        return json(401, { error: "unauthorized" });
-      }
-      const body = JSON.parse((await readBody(req)) || "{}");
-      const session = String(body.session ?? "").trim();
-      if (!session) return json(400, { error: "session 이 필요합니다." });
-      await withLock(session, async () => store.clear(session));
-      return json(200, { ok: true });
-    }
-
-    json(404, { error: "not found" });
-  } catch (err: any) {
-    json(500, { error: err.message });
+    if (!statSync(abs).isDirectory()) return { ok: false, error: `workspace 가 디렉토리가 아니에요: ${abs}` };
+  } catch {
+    return { ok: false, error: `workspace 를 찾을 수 없어요: ${abs}` };
   }
+  if (allowedRoots.length) {
+    const inside = allowedRoots.some((root) => abs === root || abs.startsWith(root + '/'));
+    if (!inside) return { ok: false, error: `허용되지 않은 workspace 예요(AGENT_ALLOWED_ROOTS 밖): ${abs}` };
+  }
+  return { ok: true, path: abs };
+}
+
+const pipe = await createPipeline();
+console.error(`[pipeline 로드됨] intents=${pipe.info().intents} skills=${pipe.info().skills}`);
+
+// 모델 예열 + 주기 keep-alive — 상주 서버는 첫 요청 콜드스타트를 없애고, 유휴 시 Ollama 가
+// 모델을 내리지 않도록 4분마다 최소 호출로 상주 유지한다(베스트에포트, 실패 무시).
+await pipe.warmup().then(
+  () => console.error('[모델 예열 완료]'),
+  () => {},
+);
+setInterval(() => void pipe.warmup().catch(() => {}), 4 * 60_000).unref();
+
+// allowHalfOpen: 클라이언트가 요청을 보내고 write 를 닫아도(FIN), 서버가 비동기 처리
+// 후 응답을 쓸 수 있도록 쓰기측을 자동으로 닫지 않는다.
+const server = net.createServer({ allowHalfOpen: true }, (conn) => {
+  let buf = '';
+  conn.setEncoding('utf8');
+  conn.on('data', (d) => {
+    buf += d;
+  });
+  conn.on('end', async () => {
+    try {
+      const req = JSON.parse(buf) as Req;
+      if (req.op === 'info') {
+        conn.end(JSON.stringify({ ...pipe.info(), souls: listSouls() }) + '\n');
+        return;
+      }
+      const v = validateWorkspace(req.workspace);
+      if (!v.ok) {
+        conn.end(JSON.stringify({ error: v.error }) + '\n');
+        return;
+      }
+      // 첨부(봇 업로드) 검증 — 절대경로 + 실제 파일만, 최대 10개. 그 외는 조용히 버린다.
+      const atts = (req.attachments ?? [])
+        .filter((p): p is string => typeof p === 'string' && isAbsolute(p))
+        .filter((p) => {
+          try {
+            return statSync(p).isFile();
+          } catch {
+            return false;
+          }
+        })
+        .slice(0, 10);
+      const opts = { workspace: v.path, chatId: req.chatId, attachments: atts.length ? atts : undefined };
+      if (req.op === 'reset') {
+        pipe.reset(opts);
+        conn.end(JSON.stringify({ ok: true }) + '\n');
+      } else {
+        // NDJSON 스트리밍: 생성 토큰을 {"t":"…"} 줄로 흘리고, 마지막에 {"done":{…응답}} 한 줄로 마무리.
+        // (구 클라이언트/봇은 onToken 을 안 주므로 토큰 줄 없이 done 만 받는다 — 하위호환)
+        const onToken = (t: string) => conn.write(JSON.stringify({ t }) + '\n');
+        const res = await pipe.handle(req.text ?? '', { ...opts, onToken });
+        conn.end(JSON.stringify({ done: res }) + '\n');
+      }
+    } catch (err) {
+      conn.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }) + '\n');
+    }
+  });
+  conn.on('error', () => {
+    /* 클라이언트가 끊어도 서버는 계속 */
+  });
 });
 
-server.listen(config.port, () => {
-  console.log(`Skillful Agent 서버 기동: http://localhost:${config.port}`);
-  console.log(`모델 ${config.model} / 스킬 ${skills.size()}개 / 모드 ${config.skillMode}`);
-  console.log(`작업폴더 ${config.cwd} (파일/셸 작업은 이 안에서만)`);
-  console.log(`도구: ${tools.map((t) => t.name).join(", ")}`);
-  console.log(`위험 도구 자동승인(AUTO_APPROVE): ${config.autoApprove}`);
-  if (config.serverToken) console.log("토큰 인증 활성화 (헤더 x-api-key)");
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`포트 ${port} 가 이미 사용 중입니다. 다른 서버가 떠 있는지 확인하세요.`);
+    process.exit(1);
+  }
+  throw err;
+});
 
-  // 위험 조합 경고: 인증 없는 서버 + 자동승인 + 셸/쓰기 도구 활성 = 원격 코드 실행 위험
-  const dangerousOn = tools.some((t) => t.dangerous);
-  if (config.autoApprove && dangerousOn && !config.serverToken) {
-    console.log(
-      "\n⚠️  보안 경고: AUTO_APPROVE=true + 위험 도구(run_shell/write_file) 활성 + 토큰 미설정.\n" +
-        "    이 서버에 접근 가능한 누구나 파일 쓰기·셸 실행을 시킬 수 있습니다.\n" +
-        "    공개/공유 배포라면 다음 중 하나 이상을 적용하세요:\n" +
-        "      • DISABLED_TOOLS=run_shell,write_file  (위험 도구 제거)\n" +
-        "      • AUTO_APPROVE=false                    (위험 도구 거부)\n" +
-        "      • AGENT_SERVER_TOKEN=<토큰>             (요청 인증)\n" +
-        "      • 텔레그램 봇은 TELEGRAM_ALLOWED_CHAT_IDS 로 본인만 허용\n",
+server.listen(port, host, () => {
+  console.error(`agent 서버 대기 중: tcp://${host}:${port}`);
+  if (!isLoopbackHost(host)) {
+    console.error(
+      `⚠️  비-루프백(${host}) 바인딩입니다. 이 서버는 요청이 지정한 workspace 에서 파일쓰기·스캐폴드 명령을 실행하므로,\n` +
+        '   네트워크에 노출되면 위험합니다. 반드시 AGENT_ALLOWED_ROOTS 로 허용 경로를 제한하고 신뢰된 망에서만 사용하세요.',
     );
+    if (!allowedRoots.length) {
+      console.error('   현재 AGENT_ALLOWED_ROOTS 가 비어 있어 모든 절대경로가 허용됩니다.');
+    }
   }
+  console.error('전역 CLI:  agent "메시지"  |  대화형:  agent  |  텔레그램:  npm run bot');
 });
+
+function shutdown(): void {
+  server.close();
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

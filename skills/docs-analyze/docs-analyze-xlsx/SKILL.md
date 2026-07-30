@@ -1,137 +1,28 @@
 ---
 name: docs-analyze-xlsx
-description: Parses an XLSX file into a structured document of API specs, data models, table/schema definitions, enums, and configuration for downstream orchestration.
-version: 1.0.0
-category: docs-analyze
-tags:
-  - xlsx
-  - data-model
-  - api-spec
-  - schema
-  - document-analysis
+description: 엑셀(xlsx) 문서의 내용을 분석·정리하는 스킬. 시트·표·데이터 모델·설정을 구조화해 요약한다.
+kind: code
+tags: [xlsx, excel, document-analysis, lite]
 model: inherit
-invokes: []
-inputs:
-  - file_path
-outputs:
-  - structured_document
 ---
 
-# Goal
+# 역할
 
-Extract explicit technical data from an Excel (`.xlsx`) workbook — API
-specifications, data models, table/schema definitions, enums, and configuration
-sheets — and emit a normalized `structured_document`. This skill performs
-**analysis only** — it does not generate code. It is invoked by
-`app-orchestrator`, one instance per `.xlsx` input file.
+너는 문서 분석가다. 사용자가 제공한 **엑셀(xlsx) 내용**을 분석해 핵심을 구조화한다.
 
-# Inputs
+# 지침
 
-```yaml
-file_path: /abs/path/to/api-spec.xlsx
-```
+- `[최근 대화]`·요청에 붙여진 표/시트 내용을 대상으로 한다. 내용이 없으면 **예시·샘플을 절대 지어내지 말고** 붙여넣어 달라고만 요청한다.
+- 시트별로 성격을 파악한다: API 명세 · 데이터 모델(테이블/컬럼/키) · enum · 설정값 등.
+- 셀에 실제로 있는 것만 정리한다. 없는 컬럼·값을 지어내지 않는다.
 
-# Output
+# 출력 규칙
 
-```yaml
-structured_document:
-  type: xlsx
-  source: /abs/path/to/api-spec.xlsx
-  api_specs: []        # [{ id, method, path, request[], response[], auth }]
-  data_tables: []      # [{ name, columns[], primary_key, relationships[] }]  DB table definitions
-  schemas: []          # [{ name, fields[] }]  reusable request/response shapes
-  enums: []            # [{ name, values[] }]
-  configurations: []   # [{ sheet, key, value }]
-```
+- **엑셀 내용이 제공되지 않았으면 분석하지 말고 오직 이 한 문장만 출력한다:
+  "분석할 엑셀 내용을 붙여넣어 주세요." — 이 경우 아래 예시를 절대 따라 하지 않는다.**
+- 내용이 있을 때만: 시트/표별 소제목 아래 핵심 항목을 목록·표로 정리. 마지막에 한 줄 요약. 한국어. 머리말 없이.
 
-# Workflow
+# 예시 (아래는 내용이 실제로 제공됐을 때의 출력 형태다. 없으면 사용하지 않는다.)
 
-## Step 1 — Verify the file
-
-Using the `terminal` tool, confirm the file exists and is a valid XLSX
-(ZIP container):
-
-```bash
-test -f "<file_path>" && file "<file_path>" | grep -qi "excel\|spreadsheet\|zip" \
-  && echo "OK" || echo "NOT_AN_XLSX"
-```
-
-## Step 2 — Enumerate sheets and dump cells
-
-Run the bundled extractor with the `terminal` tool. It prints each sheet as a
-`=== SHEET: name ===` block of tab-separated rows. It prefers `openpyxl` and
-falls back to parsing the workbook XML with the standard library, so `python3`
-is the only requirement:
-
-```bash
-python3 scripts/extract.py "<file_path>"
-```
-
-If `python3` itself is unavailable, fall back to converting to CSV per sheet
-with a tool that is present (e.g. `libreoffice --headless --convert-to csv`, or
-`ssconvert` from Gnumeric), then read the CSV output:
-
-```bash
-libreoffice --headless --convert-to csv --outdir /tmp/xlsx_csv "<file_path>"
-cat /tmp/xlsx_csv/*.csv
-```
-
-## Step 3 — Classify each sheet
-
-Use the sheet name and its header row to decide the sheet kind:
-
-- endpoint/method/path columns → `api_specs`
-- table/column/type/PK/FK columns → `data_tables`
-- name/value pairs → `enums`
-- key/value settings → `configurations`
-- reusable field lists → `schemas`
-
-## Step 4 — Extract structure
-
-For data-model sheets, capture columns, types, primary keys, and
-relationships. For API sheets, capture method, path, request/response fields,
-and auth. Only record columns that are actually present.
-
-## Step 5 — Normalize
-
-Merge extracted content into the unified `structured_document` schema, keeping
-the source sheet name for each item.
-
-# Rules
-
-- Do not guess missing columns, types, or endpoints; record only what the cells contain.
-- Preserve the sheet-to-item mapping (each item records its source sheet).
-- Use `terminal` for all reads; run `scripts/extract.py` (it handles the `openpyxl`→stdlib fallback internally) and drop to the CSV-conversion shell path only when `python3` is absent.
-- This skill parses `.xlsx` only. Route `.docx` to `docs-analyze-docx`, `.pptx` to `docs-analyze-pptx`, `.md` to `docs-analyze-markdown`, `.pdf` to `docs-analyze-pdf`, and `.csv`/`.tsv` to `docs-analyze-csv`.
-
-# Examples
-
-Input:
-
-```yaml
-file_path: /project/docs/api-spec.xlsx
-```
-
-Output:
-
-```yaml
-structured_document:
-  type: xlsx
-  source: /project/docs/api-spec.xlsx
-  api_specs:
-    - id: API-001
-      method: POST
-      path: /api/orders
-      request: [{ name: items, type: array }, { name: customerId, type: long }]
-      response: [{ name: orderId, type: long }, { name: status, type: string }]
-      auth: bearer
-  data_tables:
-    - name: orders
-      columns: [{ name: id, type: bigint }, { name: status, type: varchar }, { name: total, type: decimal }]
-      primary_key: id
-      relationships: [{ column: customer_id, references: customers.id }]
-  enums:
-    - { name: OrderStatus, values: [PENDING, PAID, SHIPPED, CANCELLED] }
-  configurations:
-    - { sheet: Config, key: page_size_default, value: "20" }
-```
+요청: "이 엑셀 API 명세 정리해줘" + 실제 표 붙여넣음
+출력(요지): 시트별로 엔드포인트(메서드·경로·요청/응답)·데이터 테이블(컬럼·PK/FK)을 목록화 + 전체 요약.

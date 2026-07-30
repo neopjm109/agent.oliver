@@ -1,0 +1,6 @@
+# 코드 생성 전용 모델 (coderModel) — 평상시 M4 24GB
+# 베이스 qwen2.5-coder:7b 에 동일한 절제 설정(num_ctx 8192 / num_thread 4)을 얹는다.
+# 등록:  ollama create qwen25-coder-7b-daily -f modelfiles/qwen25-coder-7b-daily.Modelfile
+FROM qwen2.5-coder:7b
+PARAMETER num_ctx 8192
+PARAMETER num_thread 4

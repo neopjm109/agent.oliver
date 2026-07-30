@@ -1,326 +1,210 @@
-# Skillful Agent
+# ai-agent-lite
 
-스킬 기반 범용 AI 에이전트 프레임워크. **완전 자체 구현**이며, OpenAI 호환 tool-calling 을 지원하는
-**어떤 로컬 LLM**(Ollama · LM Studio · vLLM)이나 OpenAI API 뒤에서도 동작합니다.
+저사양 로컬 LLM(2B~7B급)에서 **안정적으로 동작하는 것**을 최우선으로 하는 경량 에이전트.
 
-Claude Code 의 핵심 구조 — *에이전트 루프 + 스킬 + 도구 + 권한 게이트* — 를 그대로 옮겨온
-구현이며, 여기에 여러분의 스킬과 도구를 얹어 확장하도록 설계했습니다.
-
-**주요 기능**
-
-- 🔌 OpenAI 호환 tool-calling — 로컬 LLM(Ollama·LM Studio·vLLM) 또는 OpenAI
-- 🧩 재귀 스킬 로딩 + 카테고리 기반 2단계 탐색 (수백 개 스킬 확장 가능)
-- 🧭 하이브리드 스킬 라우터 + 자동 계획 — 소형 모델을 위해 요청에 맞는 스킬을 LLM 분류로 자동 로드하고 Todo 를 선제 수립 (`SKILL_ROUTER` · `AUTO_PLAN`)
-- 📋 플래닝 — 다단계 작업을 할 일 목록으로 쪼개 추적 (`update_plan`)
-- 📄 산출물 자동 저장 — 긴 문서형 답변을 작업 폴더에 `.md` 로 자동 저장 (`AUTO_SAVE_ARTIFACTS`)
-- 💬 스트리밍 출력 (CLI)
-- 🤖 서브에이전트 — 에이전트가 하위 작업을 다른 에이전트에게 위임 (`spawn_agent`)
-- 💾 대화 영속화 — 세션별 히스토리를 디스크에 저장, 멀티턴 이어가기
-- 🔎 웹 검색·가져오기 — `web_search`(Tavily/DuckDuckGo) · `web_fetch`(SSRF 가드)
-- 🔒 보안 — 도구 비활성화(`DISABLED_TOOLS`) · 위험 조합 경고 · 텔레그램 chat_id 허용목록
-- 🌐 HTTP 서버 모드 + 📱 텔레그램 봇 연동
-
-## 동작 원리
-
-핵심은 **에이전트 루프**입니다: LLM 을 호출 → 응답에 `tool_calls` 가 있으면 도구를 실행하고 결과를
-대화에 되먹여 다시 호출 → `tool_calls` 가 없으면 최종 답변으로 종료. 여기에 소형 로컬 모델을 안정적으로
-굴리기 위한 **선(先)처리**(스킬 자동 라우팅 · 자동 계획)와 **이탈/반복 가드**가 더해집니다.
-
-### AI · LLM 흐름도
-
-한 사용자 턴(`Agent.run()` 1회)의 처리 흐름입니다. 🧠 표시가 **실제 LLM 을 호출하는 지점**입니다.
+오케스트레이션(계획 생성)을 모델에게 통째로 맡기면 저사양에서 무너진다 → 이 프로젝트는 흐름을
+**코드가 통제**하고, 모델은 **분류(intent)·슬롯 추출·각 스킬의 본문 생성**만 담당한다.
 
 ```
-  사용자 입력
-     │
-     ▼
-  턴 상태 초기화(TurnState) · 작업폴더 스냅샷 주입
-     │
-     ▼
-  ── 선처리 : 최상위 턴 & (SKILL_ROUTER | AUTO_PLAN) 일 때만 ─────────────────
-     🧠 단일 분류  classifyTurn  (스킬 매칭 + 작업 여부를 한 번에)
-        ├─ 맞는 스킬이면 그 지침을 주입
-        └─ 실제 작업이면 🧠 planFirst (update_plan 강제)
-     │
-     ▼
-  ┌───────────────── 메인 에이전트 루프 (최대 MAX_STEPS 회) ──────────────────┐
-     🧠 LLM 호출  callModel   (매 호출 전 compact 압축 + 계획 리마인더 주입)
-        └ 컨텍스트 초과 / 5xx → 히스토리 예산 축소 후 재시도
-     │
-     ▼
-     응답에 tool_calls 가 있나?
-     │
-     ├─[있음] 도구 실행  executeToolCalls
-     │         · 반복 호출 가드    · 중간 산출물 자동저장
-     │         · 위험 도구(write_file · run_shell) → 승인 게이트 (y / n / a)
-     │         └ 강제 종료 신호(동일호출 3회 / 계획만 반복)?
-     │              ├ 아니오 ───────────────────→ 루프 처음으로 (LLM 재호출)
-     │              └ 예 → 🧠 forceFinalAnswer (도구 끄고 마무리) ──┐
-     │                                                            │
-     └─[없음] 최종 응답 처리  handleFinalResponse                   │
-               └ 이탈 감지(직전 턴 반복 / 계획 미완 중단)?           │
-                    ├ 예(턴당 1회) → 교정 지시 주입 → 루프 처음으로   │
-                    └ 아니오 ─────────────────────────────────────┤
-  └────────────────────────────────────────────────────────────── │ ──┘
-                                                                   ▼
-                        maybeAutoSave — 긴 문서형 답변을 .md 로 자동 저장
-                                                                   │
-                                                                   ▼
-                                                              최종 답변 반환
+User → Router(임베딩+분류기) → [단일] 스킬 1개 실행
+                             └ [복합] plan_and_run → 계획 → 확인 → 순차 실행(산출물 체이닝)
 ```
 
-- **선처리 (최상위 턴만)** — 도구 없는 **단일 LLM 분류**(`classifyTurn`)가 요청을 스킬 카테고리 진입점과
-  매칭(`SKILL_ROUTER`)하면서 동시에 '계획이 필요한 실제 작업인지'(`AUTO_PLAN`)를 한 번에 판정합니다.
-  맞는 스킬이 있으면 그 지침을 자동 주입하고, 실제 작업이면 `update_plan` 을 강제 호출해 Todo 를 먼저
-  세웁니다(`planFirst`). 소형 모델이 스킬을 스스로 못 고르거나 계획 없이 헤매는 것을 막습니다.
-  (예전엔 스킬 분류·작업 판정을 각각 호출해 같은 입력을 두 번 분류했는데, 하나로 합쳐 왕복 1회로 줄였습니다.)
-- **메인 루프** — 매 호출 전 컨텍스트를 예산 내로 압축(`compact`)하고 계획 리마인더를 임시 주입합니다.
-  컨텍스트 초과·일시 5xx 는 예산을 줄여 재시도합니다.
-- **이탈/반복 가드** — 같은 도구를 3회 반복하거나 계획만 갱신하면 도구를 끈 채 답변을 강제하고(`forceFinalAnswer`),
-  직전 턴과 같은 응답을 반복하거나 계획을 미완인 채 "하겠다"고 서술만 하고 끝내려 하면 턴당 1회 교정 지시를 주입해 재생성합니다.
-- **도구 · 스킬** — 도구는 `src/tools/`(read/write/셸/웹/계획/스킬/서브에이전트), 스킬은 `skills/**/SKILL.md` 지침을
-  `list_skills`·`invoke_skill` 로 로드해 모델이 따릅니다.
+- **1 intent → 1 skill → 1 LLM 호출**이 기본. 모델이 실행 순서를 정하지 않는다(정적 매핑).
+- **복합 요청**("A하고 B해줘", 접속어 없이 문장 나열도)은 룰+LLM으로 감지해 `plan_and_run`으로
+  올려, **계획을 세워 확인받고**(응/아니오·"N번 빼줘" 편집) 등록된 스킬을 **순서대로 실행**한다.
+  각 단계 산출물은 다음 단계로 이어지고(체이닝), 텍스트 결과는 workspace에 파일로 저장된다.
+- **코드 생성/스캐폴딩**은 코드가 공식 CLI 명령을 결정론적으로 조립(오타·환각 0)한 뒤,
+  **사용자 확인을 받아 실제로 실행**한다(미설치 시 설치 안내로 폴백).
+- 모델이 호출되는 곳: 애매한 intent 분류, 슬롯 추출, 복합 판정/계획, 스킬 본문 생성.
 
-- **스킬**은 `skills/` 아래 **어느 깊이든** `SKILL.md` 파일이면 됩니다. 로더가 재귀적으로 찾습니다.
-  frontmatter(`name`, `description`, `allowed-tools`)로 "언제 쓰는지"를 선언하고, 본문에 절차를 적습니다.
-- **카테고리**는 `skills/` 바로 밑 폴더명입니다. 예: `skills/web/form-generator/SKILL.md` → 카테고리 `web`.
-  하위 스킬이 없는 `skills/foo/SKILL.md` 는 최상위 직속 스킬이라 카테고리 `general` 입니다.
-- **카테고리 대표 스킬** — 하위 스킬을 가진 카테고리 폴더 바로 밑에 `SKILL.md` 를 두면(`skills/review/SKILL.md`),
-  그 카테고리(`review`)의 **짧은 이름 진입점**이 됩니다. 긴 이름(`code-review-orchestrator`) 대신 `/review` 로 부를 수 있죠.
-  보통 frontmatter `invokes:` 로 카테고리의 실제 오케스트레이터에 위임합니다. (예시: `skills/review/`, `skills/research/`)
-- **2단계 스킬 탐색** — 스킬이 많을 때 설명을 전부 시스템 프롬프트에 넣으면 폭증하므로(예: 300개 ≈ 72KB),
-  기본적으로 시스템 프롬프트엔 **카테고리 개요만** 싣습니다. 모델은 `list_skills(category)` 로 후보를 펼쳐 본 뒤
-  `invoke_skill(name)` 으로 지침을 로드합니다. (스킬이 30개 이하면 전체 목록을 바로 노출 — `overview()` 임계값)
-- **스킬 발동 확인** — 자연어 요청에선 모델이 스킬을 쓸지 스스로 정하므로, 실제로 어떤 스킬이
-  발동했는지 매 요청마다 추적해 알려줍니다. CLI 는 `🧩 사용한 스킬: ...` 를 출력하고, 서버 응답엔
-  `skills` 필드가, 텔레그램엔 답변 하단에 표시됩니다. (아무 스킬도 안 썼으면 목록은 비어 있음)
-- **위험한 도구**(`write_file`, `run_shell`)는 실행 전 터미널에서 사용자 승인을 받습니다.
-  (승인 거부는 결과 문자열이 아니라 `ToolResult.denied` 플래그로 전달되어, 자동 저장 등 호출부가 안전하게 판별합니다.)
-- **작업 폴더(샌드박스)** — 에이전트의 파일 도구(`read_file`/`write_file`/`list_dir`)는 기본적으로
-  **실행 위치의 `workspaces/` 폴더 안에서만** 동작합니다(그 밖으로 나가는 경로는 차단). 산출물이 한곳에
-  모이고 저장소·`.env`·소스가 오염/유출되지 않습니다. 위치는 `WORKSPACE_DIR` 로 바꿀 수 있습니다
-  (상대경로는 실행 위치 기준, 절대경로도 가능). `workspaces/` 는 `.gitignore` 에 포함됩니다.
+설계 상세는 [ARCHITECTURE.md](ARCHITECTURE.md)(§0이 현행), 스킬/인텐트 목록은
+[SKILLS-INVENTORY.md](SKILLS-INVENTORY.md), 통합 근거는 [SKILL-CONSOLIDATION.md](SKILL-CONSOLIDATION.md).
 
-## 빠른 시작
-
-```bash
-# 1. 의존성 설치
-npm install
-
-# 2. 설정
-cp .env.example .env
-#   .env 에서 LLM_BASE_URL / LLM_MODEL 을 로컬 환경에 맞게 수정
-
-# 3-a. 대화형 실행
-npm run dev
-
-# 3-b. 단발 실행 (스크립트 모드)
-npm run dev -- "src 디렉터리 구조를 설명해줘"
-```
-
-### 로컬 LLM 예시 (Ollama)
-
-```bash
-ollama pull qwen2.5:14b-instruct
-ollama serve
-# .env:  LLM_BASE_URL=http://localhost:11434/v1
-#        LLM_MODEL=qwen2.5:14b-instruct
-```
-
-> 도구 호출(tool calling) 품질은 모델에 크게 좌우됩니다.
-> 로컬은 `qwen2.5:14b` 이상 또는 `llama3.3:70b` 급을 권장합니다.
-
-## 실행 모드
-
-### 1) CLI (스트리밍 + 대화 영속화)
-
-```bash
-npm run dev                      # 대화형 REPL (응답이 토큰 단위로 스트리밍)
-npm run dev -- "질문"            # 단발 실행
-npm run dev -- --session work    # 세션 지정 (대화가 .sessions/work.json 에 저장/복원)
-```
-
-대화는 세션별로 `.sessions/<id>.json` 에 저장되어, 다시 실행하면 이어집니다. (기본 세션 `cli`)
-
-**명령어는 CLI·서버(텔레그램 봇)가 동일**합니다 (`src/commands.ts` 한 곳에서 해석). REPL/봇 공통:
-- `/help` — 명령 도움말
-- `/skills` — **카테고리 대표 스킬**(짧은 진입점)만 나열 (`SKILL_MODE=single` 이어도 표시)
-- `/soul [이름|off]` — 페르소나 목록 / 변경 / 해제 (세션에 영속)
-- `/reset` — 대화 초기화
-- `/<카테고리>` 또는 `/<스킬명> [요청]` (예: `/review`, `/research`) — 스킬 직접 실행
-- (CLI 전용) `/` 입력 후 Tab 자동완성, `exit`·`quit` 종료
-
-#### 페르소나(SOUL) 선택
-
-`souls/<이름>.md` 를 정체성으로 주입해 특정 페르소나로 실행합니다. 세 가지 형식을 지원합니다.
-
-```bash
-npm run dev -- --oliver          # 단축형 (macOS/Linux)
-npm run dev -- --persona oliver  # 값-인자형 (별칭: --soul oliver)
-npm run oliver                   # 전용 스크립트 (souls/oliver.md, souls/claire.md 용)
-```
-
-> **Windows PowerShell 주의** — PowerShell 은 `npm run dev -- --oliver` 의 단독 `--` 를 자체 토큰으로
-> 소비해버려 `--oliver` 가 스크립트까지 전달되지 않습니다. PowerShell 에서는 다음 중 하나를 쓰세요.
->
-> ```powershell
-> npm run oliver                 # 권장: 플래그가 스크립트에 내장되어 -- 구분자 불필요
-> npx tsx src/index.ts --persona oliver   # npm 을 거치지 않고 직접 실행
-> ```
->
-> 다른 페르소나용 전용 스크립트는 `package.json` 의 `scripts` 에 `"이름": "tsx src/index.ts --이름"` 형태로 추가하면 됩니다.
-
-### 2) HTTP 서버 (외부 연동용)
-
-```bash
-npm run serve                    # http://localhost:8787
-```
-
-| 엔드포인트 | 설명 |
-|---|---|
-| `GET  /health` | 상태 확인 |
-| `POST /chat`   | `{ "session": "...", "message": "..." }` → `{ "reply": "..." }` |
-| `POST /reset`  | `{ "session": "..." }` → 해당 세션 대화 초기화 |
-
-- 세션별로 대화가 영속화되어 멀티턴이 유지됩니다.
-- 서버엔 터미널이 없으므로 위험 도구(쓰기·셸)는 `AUTO_APPROVE=true` 일 때만 실행됩니다.
-- `AGENT_SERVER_TOKEN` 을 설정하면 요청 헤더 `x-api-key` 로 인증합니다.
-
-### 3) 텔레그램 봇 ([bot/](bot/), Python · python-telegram-bot)
-
-```bash
-# 터미널 1 — 에이전트 서버
-npm run serve
-
-# 터미널 2 — 텔레그램 봇 (venv 권장)
-cd bot
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env       # TELEGRAM_BOT_TOKEN (BotFather 발급) 입력
-python telegram_bot.py
-```
-
-텔레그램 채팅별로 세션이 분리(`tg-<chat_id>`)되어 대화가 유지됩니다.
-봇은 서버의 `/chat` 을 호출할 뿐이라, 서버가 로컬 LLM을 쓰든 무엇을 쓰든 무관합니다.
-
-봇 명령어는 **CLI 와 동일**합니다. `/start`(환영 메시지)만 봇 네이티브이고, 그 외 모든
-슬래시 명령(`/help`·`/skills`·`/soul`·`/reset`·`/<스킬명>`)은 서버로 전달되어 CLI 와 같은
-해석기(`src/commands.ts`)가 처리합니다.
-- `/help` — 명령 도움말   `/skills` — 카테고리 스킬 목록
-- `/soul [이름|off]` — 페르소나 목록 / 변경 / 해제 (채팅별 세션에 저장, `souls/<이름>.md` 로 추가)
-- `/reset` — 대화 초기화   `/<스킬명> [요청]` — 스킬 직접 실행
-
-봇은 서버의 `POST /chat/stream`(NDJSON) 을 구독해, 처리 중 도구 호출·계획 같은 **진행 상황을
-메시지 하나를 편집하며 실시간으로** 보여준 뒤 최종 답변으로 교체합니다. 최종 답변은
-`telegramify-markdown` 으로 텔레그램 **MarkdownV2** 로 변환해 전송합니다(변환/전송 실패 시 평문 폴백).
-
-> ⚠️ **보안** — 에이전트는 셸/파일 도구를 쓸 수 있고, 텔레그램 봇은 봇 이름만 알면 누구나
-> 말을 걸 수 있습니다. 특히 서버가 `AUTO_APPROVE=true` 이면 **원격 셸 실행**이 열립니다.
-> 반드시 `bot/.env` 의 `TELEGRAM_ALLOWED_CHAT_IDS` 에 **본인 chat_id 만** 넣으세요.
-> (봇 실행 후 `/start` 를 보내면 답장/로그에 본인 chat_id 가 표시됩니다.)
-
-## 플래닝 (update_plan)
-
-3단계 이상 걸리는 작업이면 에이전트가 `update_plan` 도구로 할 일 목록을 세우고, 각 단계를
-진행하며 상태(`pending` → `in_progress` → `completed`)를 갱신합니다. 사용자에겐 체크리스트로 보입니다.
-
-```
-📋 계획
-  ☑ package.json 읽기
-  ▸ bot 폴더 확인  ⟵ 진행 중
-  ☐ 결과 요약
-```
-
-계획은 호출할 때마다 전체 목록으로 교체되며(TodoWrite 방식), 항상 하나만 `in_progress` 입니다.
-
-## 서브에이전트 (spawn_agent)
-
-에이전트는 크고 자기완결적인 하위 작업을 `spawn_agent` 도구로 **서브에이전트**에게 위임할 수 있습니다.
-서브에이전트는 자신만의 대화로 도구·스킬을 모두 써서 작업을 마치고 결과 요약만 돌려줍니다.
-무한 위임을 막기 위해 재귀 깊이는 `MAX_DEPTH`(기본 3)로 제한됩니다.
-
-## 새 스킬 추가하기
-
-`SKILL.md` 를 만들면 끝입니다. 재시작하면 자동 등록됩니다. 위치는 자유입니다:
-
-- 카테고리로 묶기: `skills/<카테고리>/<스킬>/SKILL.md` (권장, 카테고리 = `<카테고리>`)
-- 카테고리 대표(짧은 이름 진입점): `skills/<카테고리>/SKILL.md` (하위 스킬이 있으면 카테고리 = `<카테고리>`)
-- 최상위 직속: `skills/<스킬>/SKILL.md` (하위 스킬 없음 → 카테고리 = `general`)
-
-```markdown
----
-name: my-skill
-description: 언제 이 스킬을 쓰는지 — 모델이 이 문장으로 선택합니다.
-allowed-tools: [read_file, run_shell]
 ---
 
-# 스킬 제목
-## 절차
-1. ...
-```
-
-## 새 도구 추가하기
-
-`src/tools/` 에 `Tool` 인터페이스를 구현하고 `src/tools/index.ts` 의 `defaultTools` 에 추가합니다.
-
-```ts
-export const myTool: Tool = {
-  name: "my_tool",
-  description: "무엇을 하는 도구인지",
-  parameters: { type: "object", properties: { x: { type: "string" } }, required: ["x"] },
-  dangerous: false, // true 면 실행 전 승인
-  async run(args, ctx) {
-    // 보통은 결과 문자열만 반환. 승인이 필요한 도구라면 거부 시 구조화된 결과로 알린다:
-    //   if (!(await ctx.requestPermission("작업", detail))) return { content: "거부됨", denied: true };
-    return "결과 문자열";
-  },
-};
-```
-
-> 반환 타입은 `string | ToolResult`(`{ content, denied? }`) 입니다. 문자열을 돌려주면 그대로 결과로 쓰이고,
-> `denied: true` 를 실으면 호출부(자동 저장 등)가 문구 매칭 없이 '거부됨'을 안전하게 판별합니다.
-
-## 프로젝트 구조
-
-| 경로 | 역할 |
-|---|---|
-| `src/agent.ts` | 에이전트 루프 (핵심) — 선처리·메인 루프·가드·서브에이전트 오케스트레이션 |
-| `src/agent-prompt.ts` | 시스템 프롬프트 빌더 (정체성·스킬 규칙·행동 원칙) |
-| `src/agent-utils.ts` | 상태 없는 순수 헬퍼 (히스토리 예산·정규화·자동저장 파일명 등) |
-| `src/llm.ts` | OpenAI 호환 LLM 클라이언트 (비스트리밍/스트리밍) |
-| `src/skills.ts` | SKILL.md 재귀 로더 / 카테고리 레지스트리 |
-| `src/tools/` | 도구 정의 (fs, bash, web_search/web_fetch, update_plan, list_skills/invoke_skill, spawn_agent) + `ToolResult` 타입 |
-| `src/session.ts` | 대화 영속화 세션 스토어 |
-| `src/permissions.ts` | 위험 작업 승인 게이트 |
-| `src/config.ts` | .env 설정 로더 |
-| `src/index.ts` | CLI 진입점 (REPL, 스트리밍) |
-| `src/server.ts` | HTTP 서버 모드 |
-| `bot/` | Python 텔레그램 봇 |
-| `skills/` | 스킬 정의 폴더 |
-| `test/` | 유닛 테스트 (node:test) |
-
-## 테스트
+## 빠른 시작 (Quick Start)
 
 ```bash
-npm test        # node:test + tsx 로 유닛 테스트 실행
-npm run typecheck
+# 0) 사전: Ollama 를 켜고 chat + embedding 모델을 로드 (아래 "요구 사항")
+
+npm install                       # 1) 의존성 설치
+# 2) config/settings.yaml 에서 profile(m4|m2)·모델명 설정
+npm run server                    # 3) 상주 서버 (이 터미널은 계속 켜 둔다)
+npm link                          # 4) 전역 'agent' 명령 등록 (최초 1회, 프로젝트 루트에서)
+agent "상태 확인"                 # 5) 어디서든 실행 (one-shot)
+agent                             #    대화형 REPL
 ```
 
-LLM 없이 도는 순수 로직을 검증합니다 — 스킬 로더/카테고리/2단계 탐색/suggest, 세션 영속화,
-컨텍스트 절삭(`truncateHistory`), 에이전트 루프·반복 가드·강제 종료(가짜 LLM 사용).
+서버 없이 프로젝트 안에서 바로 테스트: `npm run cli -- "상태 확인"`.
+코드를 고친 뒤 서버 반영: `npm run server:restart` (기존 포트 정리 후 재기동).
 
-## 안전 장치
+---
 
-- `write_file` / `run_shell` 은 실행 전 사용자 승인 (y / n / a=세션 항상 허용).
-- 파일 접근은 작업 디렉터리 밖으로 나갈 수 없음 (경로 탈출 방어).
-- `MAX_STEPS` 로 무한 루프, `MAX_DEPTH` 로 무한 서브에이전트 위임 방지.
-- **반복 호출 가드**로 소형 모델의 동일-도구 루프를 억제·강제 종료.
-- **컨텍스트 관리**(`CONTEXT_MAX_CHARS`)로 히스토리가 모델 컨텍스트를 넘지 않게 함
-  (tool_call 짝을 깨지 않도록 user 경계에서 처리). 기본적으로 잘려나갈 오래된 대화를
-  **LLM 으로 압축 요약**해 누적 유지하므로(`CONTEXT_SUMMARIZE`, 세션에 영속화) 핵심 맥락을 잃지 않고
-  세션을 오래 이어갈 수 있음. 끄면(`=false`) 요약 없이 절삭.
-- 서버 모드는 위험 도구를 `AUTO_APPROVE=true` 일 때만 실행 (+ 선택적 토큰 인증).
-- `AUTO_APPROVE=true` 로 승인 생략 가능 (자동화 시에만 권장).
-- **도구 비활성화**(`DISABLED_TOOLS=run_shell,write_file`)로 공개/서버 배포 시 위험 도구를 아예 제거.
-- 서버는 위험 조합(자동승인 + 위험 도구 + 토큰 없음) 감지 시 **기동 경고**를 출력.
-- **`web_fetch` SSRF 가드** — localhost/사설 IP·비 http(s) URL 차단 (내부망 접근 방지).
+## 요구 사항
+
+- **Node.js ≥ 18** (ESM · `tsx`)
+- **로컬 LLM 서버**(OpenAI 호환): [Ollama](https://ollama.com) — `http://localhost:11434`
+- **모델 2종**(chat + embedding 별개):
+  - chat: 하드웨어별 프로필 — M4는 `qwen3:8b`, M2는 `gemma3n:e4b` (아래 "설정" 참고)
+  - embedding: `bge-m3` (한국어 권장)
+- **절제 설정**(num_ctx/num_thread)은 `modelfiles/*.Modelfile` 로 커스텀 태그에 고정.
+  최초 1회 등록: `ollama create <태그> -f modelfiles/<파일>` (각 Modelfile 주석 참고)
+
+---
+
+## 실행 구조
+
+**상주 서버 + 얇은 클라이언트**. 서버가 파이프라인(임베딩 centroid·LLM 연결)을 한 번만 로드해
+워밍 유지하고, CLI·텔레그램은 TCP(기본 `127.0.0.1:7000`)로 요청만 보낸다.
+
+```bash
+npm run server           # 필수(터미널 1). 시작 시 파이프라인 1회 로드
+npm run server:restart   # 포트 정리 후 재기동 (코드 변경 반영)
+npm run server:stop      # 포트의 서버만 종료
+```
+
+전역 CLI 등록(프로젝트 루트에서). 전역 `agent` 명령은 `package.json`의 `bin`
+(`agent` → [`bin/agent.mjs`](bin/agent.mjs))에서 온다. `bin/agent.mjs` 는 빌드본 `dist/cli.js` 를
+remote 모드로 띄우는 얇은 shim 이라 **먼저 `npm run build` 가 필요**하다(그리고 실행엔 `npm run server`).
+
+```bash
+npm run build            # 필수 — bin/agent.mjs 가 dist/cli.js 를 로드한다
+npm link                 # 개발용 심볼릭 링크(권장). 이후 어디서든 'agent'
+# 또는  npm i -g .        # 스냅샷 설치
+```
+
+npm 없이 **bin 파일을 직접 PATH 에 거는 방법**(위와 택1):
+
+```bash
+chmod +x bin/agent.mjs                              # shebang(#!/usr/bin/env node) 실행권한
+ln -s "$PWD/bin/agent.mjs" /usr/local/bin/agent     # PATH 에 심볼릭 링크 (권한 필요 시 ~/.local/bin)
+# 또는 셸 rc(~/.zshrc)에 alias:  alias agent="$PWD/bin/agent.mjs"
+```
+
+> 어느 방식이든 `agent` 는 상주 서버(TCP `127.0.0.1:7000`)로 요청하는 remote 런처다 —
+> `AGENT_REMOTE=0 agent …` 로 서버 없이 인프로세스 실행도 가능. 포트/호스트는 `AGENT_PORT`/`AGENT_HOST`.
+
+```bash
+agent "재즈 곡 골라줘"    # one-shot — 실행한 디렉토리가 workspace
+agent                    # 대화형 REPL (같은 workspace 로 멀티턴)
+```
+
+REPL/텔레그램 명령: `/help` · `/status`(상태·결정론) · `/soul [이름|off]`(페르소나 전환) · `/reset`(세션 맥락 초기화).
+포트/호스트: `AGENT_PORT`/`AGENT_HOST`(서버·CLI 동일하게).
+
+텔레그램 봇(선택): `.env` 에 `TELEGRAM_BOT_TOKEN=<@BotFather>` 후 `npm run bot`.
+`chat.id` 를 세션 키로 채팅방 단위 멀티턴(계획 확인·프로젝트 컨텍스트)이 이어진다.
+
+---
+
+## 무엇을 할 수 있나 (intent 23개)
+
+| 분류 | intent | 발화 예 |
+|---|---|---|
+| 대화 | `chitchat` (+ `unknown`→LLM fallback) | "안녕", "잘 지내?" |
+| 복합 실행 | `plan_and_run` | "스프링 만들고 주문 도메인 설계해줘" |
+| 작업 계획 | `plan_tasks` | "할 일 체크리스트로 정리해줘" |
+| 프로젝트 | `scaffold_project`(실행) | "스프링 프로젝트 만들어줘" |
+| 코드 | `change_code`, `review_code`, `explain_code` | "음수 검증 추가해줘", "보안 점검", "이 함수 뭐 하는지 설명" |
+| 설계 | `design_system` | "postgres 스키마 설계" |
+| 문서/변환 | `analyze_document`, `write_docs`, `convert_document`, `translate` | "이 pdf 분석", "ADR 써줘", "docx→md 변환", "영어로 번역" |
+| VCS/배포 | `git_artifact`, `setup_deployment` | "커밋 메시지", "배포 빌드 스크립트" |
+| 테스트/실행 | `write_tests`, `run_command` | "단위테스트 짜줘", "타입체크 돌려줘" |
+| 조사 | `research_topic` | "REST랑 GraphQL 차이 정리" |
+| 콘텐츠·사무 | `write_proposal`, `write_message`, `meeting_minutes`, `write_story`, `run_game_session` | "제안서 초안", "안내 메일", "회의록 정리", "단편 하나" |
+
+> 상태 점검은 intent 가 아니라 **`/status` 명령**(또는 "헬스체크"·"상태 확인" 같은 명시적 상태 질의)으로 —
+> LLM 라우터를 안 거치는 결정론 경로다. 전체 매핑은 [config/intents.yaml](config/intents.yaml).
+
+---
+
+## 설정 (`config/settings.yaml`)
+
+```yaml
+profile: m4                 # m4 | m2 — 하드웨어 프로필 하나로 전환 (둘 다 로컬 Ollama)
+m4:                         # Mac M4 24GB 평상시 주력
+  baseURL: http://localhost:11434/v1
+  chatModel: qwen3-8b-daily          # 베이스 qwen3:8b (num_ctx 8192)
+  embedModel: bge-m3
+  coderModel: qwen25-coder-7b-daily  # 코드 생성 전용. 비우면 chatModel
+  maxOutputTokens: 3584              # 자유생성 출력 상한(ctx 예산 내 입력+출력)
+  noThinkFreeGen: true               # produce 자유생성만 qwen3 사고 off(reasoning_effort:none) — 지연↓
+m2:                         # Mac M2 16GB 평상시 (경량)
+  baseURL: http://localhost:11434/v1
+  chatModel: gemma3n-e4b-daily       # 베이스 gemma3n:e4b (num_ctx 4096)
+  embedModel: bge-m3
+  coderModel:                        # 비우면 chatModel(gemma3n)
+  maxOutputTokens: 2560              # 4096 ctx 예산 내(실측 여유)
+# plan: { maxSteps: 4 }      # 계획 단계 상한(기본 4). AGENT_MAX_STEPS env 로도 조정
+router:
+  directThreshold: 0.94     # 이상이면 임베딩만으로 직행(LLM 분류 스킵)
+  unknownThreshold: 0.60    # 미만이면 unknown → fallback. 중간 밴드는 LLM 분류
+  candidateK: 8             # 중간 밴드에서 LLM 에 넘길 top-K 후보 수
+response:
+  polishWithLlm: false      # true면 응답을 LLM이 한 번 다듬음
+soul: ''                    # 기본 페르소나(souls/<이름>.md). 비우면 기본 에이전트
+skills:
+  root: skills              # 활성 스킬 루트
+```
+
+- **접속 주소**: `AGENT_HOST`/`AGENT_PORT` 로 override (기본 `127.0.0.1:7000`).
+- **threshold 는 임베딩 모델 의존적** — 모델을 바꾸면 재보정 필요(ARCHITECTURE §11.2).
+
+---
+
+## 디렉토리
+
+```
+bin/agent.mjs        전역 CLI 클라이언트 (순수 Node)
+src/
+  server.ts          상주 서버 (TCP 7000)
+  index.ts           텔레그램 봇 진입점
+  pipeline.ts        Router→(복합 승격)→Runtime→Skill→Response 조립 + 확인 상태머신
+  cli.ts             서버리스/원격 겸용 CLI 하네스(REPL·one-shot)
+  core/              llmClient · router · classifier · extractor · runtime · executor ·
+                     session · soul · config · serverAddr · tui · types
+  skills/            registry · markdownSkill · agentStatus · chitchat · fallbackReply · orchestrator
+config/
+  settings.yaml      provider · 모델 · threshold · soul
+  intents.yaml       intent → 단일 skill 매핑 (23개)
+skills/              활성 스킬 (dev/ · docs-analyze/ · domains/, SKILL.md 21개)
+souls/               페르소나 (oliver · claire)
+```
+
+코드 스킬 3개(외부 의존 0/오케스트레이션): `chitchat` · `fallback_reply` · `plan-and-run`. 총 스킬 24개.
+(상태는 스킬이 아니라 `/status`·`STATUS_QUERY` 결정론 인터셉트 — `agentStatus.ts`의 `statusFactsBlock`.)
+
+---
+
+## 스킬 추가/편집
+
+1. `skills/` 아래 `<카테고리>/<스킬>/SKILL.md` 로 둔다(재귀 스캔 — 폴더명으로 인덱싱, 고유해야 함).
+   본문(프론트매터 제외)이 그대로 시스템 프롬프트가 된다. 짧게·출력전용으로(§SKILL 포맷은 INVENTORY).
+2. `config/intents.yaml` 에 intent 추가 — `description`·`examples`(5~9개)·`skill`(단일, 또는 `"{slot}"`)·
+   필요 시 `slot`(enum).
+3. 서버 재시작(`npm run server:restart`). examples 가 바뀌면 centroid 캐시(`.cache/`)는 자동 무효화.
+
+> 저사양 원칙: intent 는 적게(거친 단위 + 슬롯), 스킬 프롬프트는 짧고 출력전용으로.
+
+---
+
+## 트러블슈팅
+
+| 증상 | 원인/해결 |
+|---|---|
+| 모든 라우팅이 `unknown`, sim 0 | 임베딩 0 벡터. `encoding_format:'float'`(코드 반영됨). 임베딩 모델 로드 확인 |
+| CLI "서버 연결 실패" | 서버 미실행. `npm run server`. 포트는 `AGENT_PORT` |
+| 코드 고쳤는데 옛 동작 | 서버가 구 파이프라인 상주 중 → `npm run server:restart` |
+| 정상 발화인데 `unknown` | `unknownThreshold`(0.60)·예제 커버리지. 해당 intent examples 보강 |
+| 엉뚱한 intent | examples 를 더 변별력 있게(중간 밴드는 LLM 분류가 선택) |
+| 텔레그램 `getMe 401` | `TELEGRAM_BOT_TOKEN` 확인 |
+
+---
+
+## 비고
+
+- 코드 생성은 **CLI 명령 안내 + 확인 후 실제 실행**(scaffold). 명령은 모델이 아니라 코드가 조립해
+  오타·환각이 없다. 멀티턴(예: "여기에 auth 추가")은 세션이 대상 프레임워크를 기억한다.
+- 복합 요청은 `plan_and_run`이 계획→확인→순차 실행하며, 단계 산출물을 이어받아(체이닝)
+  workspace 의 `agent-output/<목표>/` 에 저장한다.

@@ -1,0 +1,10 @@
+# 평상시용 주력 chat 모델 (M4 24GB) — LLM_TEST_RESULT.md 결론 반영
+# 베이스 qwen3:8b(Q4_K_M)에 문서 절제 설정(num_ctx 8192 / num_thread 4)을 얹은 커스텀 태그.
+# 앱은 OpenAI 호환 /v1 로 호출하므로 이 옵션들을 직접 못 넘긴다 → Modelfile 로 고정한다.
+# num_ctx 8192 유지: 16384 로 올려봤으나 코더(qwen25-coder-7b ~5.6GB) 공존 시 합계가 커져 Ollama 가
+#   LRU evict → change_code 섞인 계획이 produce↔codegen 전환마다 재적재(스왑). 헤드룸은 출력쪽
+#   (settings.yaml m4.maxOutputTokens)으로 투자. 8단계도 8192 에서 무오버플로 실증(priorOutputsBlock 압축).
+# 등록:  ollama create qwen3-8b-daily -f modelfiles/qwen3-8b-daily.Modelfile
+FROM qwen3:8b
+PARAMETER num_ctx 8192
+PARAMETER num_thread 4
